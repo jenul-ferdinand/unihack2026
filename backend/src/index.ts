@@ -7,24 +7,25 @@ const app = new OpenAPIHono();
 
 app.route("/api/comms", comms);
 
-const healthRoute = createRoute({
-  method: "get",
-  path: "/",
-  responses: {
-    200: {
-      content: {
-        "application/json": {
-          schema: z.object({ message: z.string() }),
+app.openapi(
+  createRoute({
+    method: "get",
+    path: "/",
+    responses: {
+      200: {
+        content: {
+          "application/json": {
+            schema: z.object({ message: z.string() }),
+          },
         },
+        description: "Health check",
       },
-      description: "Health check",
     },
+  }),
+  (c) => {
+    return c.json({ message: "API is running" }, 200);
   },
-});
-
-app.openapi(healthRoute, (c) => {
-  return c.json({ message: "API is running" }, 200);
-});
+);
 
 app.doc("/doc", {
   openapi: "3.1.0",
