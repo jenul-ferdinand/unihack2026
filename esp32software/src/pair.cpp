@@ -1,110 +1,253 @@
 #include "pair.h"
 #include <string.h>
 
-static const byte ADDR_A[6] = "NODE1";
-static const byte ADDR_B[6] = "NODE2";
+static const byte DISCOVERY_ADDR[6] = "PAIR0";
 
-struct PairPacket
+enum MsgType : uint8_t
 {
-    char text[16];
+    MSG_DISCOVER  = 1,
+    MSG_OFFER     = 2,
+    MSG_CONFIRM   = 3,
+    MSG_CONFIRMED = 4
 };
 
-static void configureRadio(RF24 &radio)
+struct PairMsg
 {
+    uint8_t type;
+    uint8_t fromId;
+    uint8_t toId;
+    uint8_t reserved;
+};
+
+enum PairState : uint8_t
+{
+    ST_SEARCH = 0,
+    ST_WAIT_OFFER,
+    ST_WAIT_CONFIRMED,
+    ST_PAIRED
+};
+
+struct InternalState
+{
+    PairState state = ST_SEARCH;
+    unsigned long lastTxMs = 0;
+    unsigned long lastRxMs = 0;
+};
+
+static InternalState s;
+
+static const unsigned long DISCOVER_INTERVAL_MS = 250;
+static const unsigned long CONFIRM_INTERVAL_MS  = 250;
+static const unsigned long SEARCH_TIMEOUT_MS    = 2000;
+
+static void startDiscoveryListening(RF24 &radio)
+{
+    radio.flush_tx();
+    radio.flush_rx();
+    radio.openReadingPipe(1, DISCOVERY_ADDR);
+    radio.openWritingPipe(DISCOVERY_ADDR);
+    radio.startListening();
+}
+
+static bool readPacket(RF24 &radio, PairMsg &msg)
+{
+    if (!radio.available())
+        return false;
+
+    uint8_t len = radio.getDynamicPayloadSize();
+    if (len != sizeof(PairMsg))
+    {
+        radio.flush_rx();
+        return false;
+    }
+
+    radio.read(&msg, sizeof(msg));
+
+    Serial.print("RX type=");
+    Serial.print(msg.type);
+    Serial.print(" from=");
+    Serial.print(msg.fromId);
+    Serial.print(" to=");
+    Serial.println(msg.toId);
+
+    return true;
+}
+
+static bool sendPacket(RF24 &radio, const PairMsg &msg, PairMsg *ackOut = nullptr)
+{
+    radio.stopListening();
+
+    bool ok = radio.write(&msg, sizeof(msg));
+
+    Serial.print("TX type=");
+    Serial.print(msg.type);
+    Serial.print(" from=");
+    Serial.print(msg.fromId);
+    Serial.print(" to=");
+    Serial.print(msg.toId);
+    Serial.println(ok ? " (ok)" : " (fail)");
+
+    bool gotAckPayload = false;
+    if (ok && radio.isAckPayloadAvailable() && ackOut != nullptr)
+    {
+        uint8_t len = radio.getDynamicPayloadSize();
+        if (len == sizeof(PairMsg))
+        {
+            radio.read(ackOut, sizeof(PairMsg));
+
+            Serial.print("ACK type=");
+            Serial.print(ackOut->type);
+            Serial.print(" from=");
+            Serial.print(ackOut->fromId);
+            Serial.print(" to=");
+            Serial.println(ackOut->toId);
+
+            gotAckPayload = true;
+        }
+        else
+        {
+            radio.flush_rx();
+        }
+    }
+
+    radio.startListening();
+    return gotAckPayload;
+}
+
+void pairingBegin(RF24 &radio, PairContext &ctx, uint8_t selfId)
+{
+    ctx.selfId = selfId;
+    ctx.peerId = 0;
+    ctx.paired = false;
+
+    s.state = ST_SEARCH;
+    s.lastTxMs = 0;
+    s.lastRxMs = millis();
+
     radio.setAutoAck(true);
     radio.enableDynamicPayloads();
     radio.enableAckPayload();
     radio.setRetries(5, 15);
-    radio.flush_tx();
-    radio.flush_rx();
+
+    startDiscoveryListening(radio);
+
+    Serial.print("Pairing begin, selfId=");
+    Serial.println(selfId);
 }
 
-bool runPairing(RF24 &radio, NodeRole role)
+static void responderHandle(RF24 &radio, PairContext &ctx, const PairMsg &rx)
 {
-    configureRadio(radio);
+    if (ctx.selfId != 2)
+        return;
 
-    if (role == ROLE_A)
+    if (rx.type == MSG_DISCOVER && rx.toId == 0)
     {
-        radio.openReadingPipe(1, ADDR_A);
-        radio.openWritingPipe(ADDR_B);
-        radio.stopListening();
+        ctx.peerId = rx.fromId;
 
-        Serial.println("Starting pairing as ROLE_A");
+        PairMsg ack{};
+        ack.type = MSG_OFFER;
+        ack.fromId = ctx.selfId;
+        ack.toId = ctx.peerId;
 
-        PairPacket tx = {"PING"};
-        PairPacket ack = {};
+        radio.writeAckPayload(1, &ack, sizeof(ack));
+        s.lastRxMs = millis();
 
-        while (true)
+        Serial.println("Queued OFFER");
+    }
+    else if (rx.type == MSG_CONFIRM && rx.toId == ctx.selfId)
+    {
+        ctx.peerId = rx.fromId;
+
+        PairMsg ack{};
+        ack.type = MSG_CONFIRMED;
+        ack.fromId = ctx.selfId;
+        ack.toId = ctx.peerId;
+
+        radio.writeAckPayload(1, &ack, sizeof(ack));
+        s.lastRxMs = millis();
+
+        if (!ctx.paired)
         {
-            bool ok = radio.write(&tx, sizeof(tx));
-
-            Serial.print("TX: ");
-            Serial.print(tx.text);
-            Serial.println(ok ? " (ok)" : " (fail)");
-
-            if (ok && radio.isAckPayloadAvailable())
-            {
-                uint8_t len = radio.getDynamicPayloadSize();
-                if (len == sizeof(ack))
-                {
-                    radio.read(&ack, sizeof(ack));
-
-                    Serial.print("ACK: ");
-                    Serial.println(ack.text);
-
-                    if (strcmp(ack.text, "PONG") == 0)
-                    {
-                        Serial.println("Pairing complete (ROLE_A)");
-                        return true;
-                    }
-                }
-                else
-                {
-                    radio.flush_rx();
-                }
-            }
-
-            delay(250);
+            ctx.paired = true;
+            s.state = ST_PAIRED;
+            Serial.println("Pairing complete (responder)");
+        }
+        else
+        {
+            Serial.println("Re-queued CONFIRMED");
         }
     }
-    else
+}
+
+void pairingUpdate(RF24 &radio, PairContext &ctx)
+{
+    PairMsg rx{};
+
+    while (readPacket(radio, rx))
     {
-        radio.openReadingPipe(1, ADDR_B);
-        radio.openWritingPipe(ADDR_A);
-        radio.startListening();
+        responderHandle(radio, ctx, rx);
+    }
 
-        Serial.println("Starting pairing as ROLE_B");
+    if (ctx.selfId == 2)
+    {
+        return;
+    }
 
-        PairPacket rx = {};
-        PairPacket ack = {"PONG"};
+    unsigned long now = millis();
 
-        while (true)
+    if (s.state == ST_SEARCH)
+    {
+        if (now - s.lastTxMs >= DISCOVER_INTERVAL_MS)
         {
-            if (radio.available())
+            PairMsg tx{};
+            tx.type = MSG_DISCOVER;
+            tx.fromId = ctx.selfId;
+            tx.toId = 0;
+
+            PairMsg ack{};
+            bool gotAck = sendPacket(radio, tx, &ack);
+            s.lastTxMs = now;
+
+            if (gotAck && ack.type == MSG_OFFER && ack.toId == ctx.selfId)
             {
-                uint8_t len = radio.getDynamicPayloadSize();
-                if (len == sizeof(rx))
-                {
-                    radio.read(&rx, sizeof(rx));
-
-                    Serial.print("RX: ");
-                    Serial.println(rx.text);
-
-                    if (strcmp(rx.text, "PING") == 0)
-                    {
-                        radio.writeAckPayload(1, &ack, sizeof(ack));
-                        Serial.println("Queued ACK: PONG");
-                        Serial.println("Pairing complete (ROLE_B)");
-                        return true;
-                    }
-                }
-                else
-                {
-                    radio.flush_rx();
-                }
+                ctx.peerId = ack.fromId;
+                s.state = ST_WAIT_CONFIRMED;
+                Serial.print("Found peer ");
+                Serial.println(ctx.peerId);
             }
-
-            delay(5);
         }
     }
+    else if (s.state == ST_WAIT_CONFIRMED)
+    {
+        if (now - s.lastTxMs >= CONFIRM_INTERVAL_MS)
+        {
+            PairMsg tx{};
+            tx.type = MSG_CONFIRM;
+            tx.fromId = ctx.selfId;
+            tx.toId = ctx.peerId;
+
+            PairMsg ack{};
+            bool gotAck = sendPacket(radio, tx, &ack);
+            s.lastTxMs = now;
+
+            if (gotAck && ack.type == MSG_CONFIRMED && ack.toId == ctx.selfId)
+            {
+                ctx.paired = true;
+                s.state = ST_PAIRED;
+                Serial.println("Pairing complete (initiator)");
+            }
+        }
+
+        if (now - s.lastTxMs > SEARCH_TIMEOUT_MS)
+        {
+            s.state = ST_SEARCH;
+            ctx.peerId = 0;
+            Serial.println("Timeout, back to search");
+        }
+    }
+}
+
+bool pairingIsComplete(const PairContext &ctx)
+{
+    return ctx.paired;
 }

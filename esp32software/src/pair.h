@@ -2,10 +2,13 @@
 #include <Arduino.h>
 #include <RF24.h>
 
-enum NodeRole
+struct PairContext
 {
-    ROLE_A,
-    ROLE_B
+    bool paired = false;
+    uint8_t selfId = 0;
+    uint8_t peerId = 0;
 };
 
-bool runPairing(RF24 &radio, NodeRole role);
+void pairingBegin(RF24 &radio, PairContext &ctx, uint8_t selfId);
+void pairingUpdate(RF24 &radio, PairContext &ctx);
+bool pairingIsComplete(const PairContext &ctx);

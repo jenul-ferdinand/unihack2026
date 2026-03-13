@@ -5,12 +5,10 @@
 
 #define CE_PIN 4
 #define CSN_PIN 5
+#define SELF_ID 2
 
 RF24 radio(CE_PIN, CSN_PIN);
-
-// CHANGE THIS ON EACH BOARD
-static const NodeRole THIS_ROLE = ROLE_B;
-// other board: static const NodeRole THIS_ROLE = ROLE_B;
+PairContext pairCtx;
 
 void setup()
 {
@@ -21,7 +19,7 @@ void setup()
 
     if (!radio.begin())
     {
-        Serial.println("Radio hardware failed");
+        Serial.println("radio.begin() failed");
         while (1) {}
     }
 
@@ -30,18 +28,20 @@ void setup()
     radio.setChannel(108);
     radio.setCRCLength(RF24_CRC_16);
 
-    Serial.println("Radio ready");
-
-    if (runPairing(radio, THIS_ROLE))
-    {
-        Serial.println("Devices paired successfully!");
-    }
-    else
-    {
-        Serial.println("Pairing failed");
-    }
+    pairingBegin(radio, pairCtx, SELF_ID);
 }
 
 void loop()
 {
+    pairingUpdate(radio, pairCtx);
+
+    static bool printed = false;
+    if (pairingIsComplete(pairCtx) && !printed)
+    {
+        printed = true;
+        Serial.print("Paired with peer ");
+        Serial.println(pairCtx.peerId);
+    }
+
+    delay(5);
 }
