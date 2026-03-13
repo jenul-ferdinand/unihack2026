@@ -11,20 +11,19 @@ comms.openapi(
       200: {
         content: {
           "application/json": {
-            schema: z.object({ 
-              comms: z.array(z.string()) 
+            schema: z.object({
+              comms: z.array(z.string()),
             }),
           },
         },
         description: "Upload data from hardware",
       },
     },
-  }), 
+  }),
   (c) => {
-  
-  
-  // TODO: Return nothing for now
-  return c.json({ comms: [] }, 200);
-});
+    // TODO: Return nothing for now
+    return c.json({ comms: [] }, 200);
+  },
+);
 
 export default comms;
