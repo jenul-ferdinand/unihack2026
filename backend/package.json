@@ -5,6 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "nodemon --watch src --ext ts --exec ts-node src/index.ts",
+    "prebuild": "cd ../types && npm install && npm run build",
     "build": "tsc",
     "start": "node dist/index.js",
     "format": "prettier --write \"src/**/*.ts\"",

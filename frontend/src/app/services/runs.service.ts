@@ -1,38 +1,9 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import type { RunSummary, RunsListResponse, RunDetailResponse } from '@unihack/types';
 
-export interface Vec3 {
-  x: number;
-  y: number;
-  z: number;
-}
-
-export interface PathPoint {
-  device_pos: Vec3;
-  peer_pos: Vec3;
-  timestamp: string;
-}
-
-export interface RunSummary {
-  run_id: string;
-  status: 'active' | 'completed';
-  created_at: string;
-  stopped_at: string | null;
-  point_count: number;
-}
-
-export interface RunsListResponse {
-  runs: RunSummary[];
-}
-
-export interface RunDetailResponse {
-  run_id: string;
-  status: 'active' | 'completed';
-  created_at: string;
-  stopped_at: string | null;
-  path: PathPoint[];
-}
+export type { RunSummary, RunsListResponse, RunDetailResponse };
 
 @Injectable({ providedIn: 'root' })
 export class RunsService {

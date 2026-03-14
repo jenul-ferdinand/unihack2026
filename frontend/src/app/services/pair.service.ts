@@ -1,14 +1,9 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import type { PairStatusResponse } from '@unihack/types';
 
-export interface PairStatus {
-  pending_count: number;
-  paired: {
-    device_ip: string;
-    peer_ip: string;
-  } | null;
-}
+export type { PairStatusResponse };
 
 @Injectable({ providedIn: 'root' })
 export class PairService {
@@ -16,7 +11,7 @@ export class PairService {
 
   constructor(private http: HttpClient) {}
 
-  getStatus(): Observable<PairStatus> {
-    return this.http.get<PairStatus>(`${this.base}/status`);
+  getStatus(): Observable<PairStatusResponse> {
+    return this.http.get<PairStatusResponse>(`${this.base}/status`);
   }
 }

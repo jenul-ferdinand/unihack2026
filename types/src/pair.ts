@@ -21,3 +21,7 @@ export const PairStatusResponseSchema = z.object({
     .nullable(),
 });
 
+export type PairRequest = z.infer<typeof PairRequestSchema>;
+export type PairResponse = z.infer<typeof PairResponseSchema>;
+export type PairStatusResponse = z.infer<typeof PairStatusResponseSchema>;
+
