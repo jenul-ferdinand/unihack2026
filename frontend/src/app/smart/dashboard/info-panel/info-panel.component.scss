@@ -29,7 +29,13 @@ h2 {
   color: $text-muted;
 }
 
-.refresh-btn {
+.header-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.refresh-btn,
+.demo-btn {
   background: $bg-elevated;
   color: $text-primary;
   border: 1px solid $border;
@@ -40,6 +46,20 @@ h2 {
 
   &:hover {
     background: $border;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.demo-btn {
+  border-color: $accent-device;
+  color: $accent-device;
+
+  &:hover:not(:disabled) {
+    background: rgba($accent-device, 0.1);
   }
 }
 
