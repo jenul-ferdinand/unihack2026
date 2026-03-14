@@ -1,6 +1,42 @@
 <section class="info-detail-panel">
   <div class="header">
-    <h2>Info</h2>
+    <h2>Run Info</h2>
   </div>
-  <p class="placeholder">Device information will appear here.</p>
+
+  @if (run) {
+    <dl class="details">
+      <div class="detail-row">
+        <dt>Status</dt>
+        <dd>
+          <span class="status" [class.active]="run.status === 'active'">{{ run.status }}</span>
+        </dd>
+      </div>
+      <div class="detail-row">
+        <dt>Created</dt>
+        <dd>{{ formatDate(run.created_at) }}</dd>
+      </div>
+      @if (run.stopped_at) {
+        <div class="detail-row">
+          <dt>Stopped</dt>
+          <dd>{{ formatDate(run.stopped_at) }}</dd>
+        </div>
+      }
+      <div class="detail-row">
+        <dt>Points</dt>
+        <dd>{{ run.point_count }}</dd>
+      </div>
+    </dl>
+
+    <div class="actions">
+      @if (confirmingDelete) {
+        <p class="confirm-text">Delete this run?</p>
+        <div class="confirm-actions">
+          <button class="delete-btn confirm" (click)="onDelete()">Confirm</button>
+          <button class="cancel-btn" (click)="cancelDelete()">Cancel</button>
+        </div>
+      } @else {
+        <button class="delete-btn" (click)="onDelete()">Delete Run</button>
+      }
+    </div>
+  }
 </section>

@@ -14,7 +14,7 @@
 }
 
 .header {
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
 }
 
 h2 {
@@ -26,7 +26,98 @@ h2 {
   color: $text-muted;
 }
 
-.placeholder {
-  color: $text-muted;
+.details {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  background: $bg-elevated;
+  border: 1px solid $border;
+  border-radius: 6px;
   font-size: 0.8rem;
+}
+
+dt {
+  color: $text-muted;
+  font-weight: 500;
+}
+
+dd {
+  margin: 0;
+  color: $text-primary;
+}
+
+.status {
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: $text-muted;
+
+  &.active {
+    color: $orange;
+  }
+}
+
+.actions {
+  margin-top: 1.5rem;
+}
+
+.confirm-text {
+  font-size: 0.8rem;
+  color: $text-primary;
+  margin: 0 0 0.75rem;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.delete-btn {
+  width: 100%;
+  padding: 0.5rem;
+  font-size: 0.8rem;
+  border-radius: 4px;
+  cursor: pointer;
+  background: $bg-elevated;
+  color: #f87171;
+  border: 1px solid #f87171;
+
+  &:hover {
+    background: rgba(#f87171, 0.1);
+  }
+
+  &.confirm {
+    width: auto;
+    flex: 1;
+    background: #f87171;
+    color: $bg-base;
+    border-color: #f87171;
+
+    &:hover {
+      background: #ef4444;
+    }
+  }
+}
+
+.cancel-btn {
+  flex: 1;
+  padding: 0.5rem;
+  font-size: 0.8rem;
+  border-radius: 4px;
+  cursor: pointer;
+  background: $bg-elevated;
+  color: $text-primary;
+  border: 1px solid $border;
+
+  &:hover {
+    background: $border;
+  }
 }
