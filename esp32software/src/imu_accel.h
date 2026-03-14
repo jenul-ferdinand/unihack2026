@@ -4,8 +4,10 @@
 #define CLAMP_RADIUS_M 2.0f
 #endif
 
-#define IMU_DEBUG 0
-#define GYRO_DEBUG 1
+#include "debug_config.h"
+
+#define IMU_DEBUG (DEBUG_SERIAL_ENABLE && DEBUG_IMU_ACCEL)
+#define GYRO_DEBUG (DEBUG_SERIAL_ENABLE && DEBUG_GYRO_CLAMP)
 #define GYRO_NOISE_THRESH_DPS 30.0f
 
 struct ImuAccelCal

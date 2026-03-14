@@ -6,6 +6,8 @@
 #include "imu.h"
 #include "link.h"
 #include "time_sync.h"
+#include "imu_accel.h"
+#include "debug_config.h"
 
 #define CE_PIN 4
 #define CSN_PIN 5
@@ -93,6 +95,11 @@ struct MotionState
     float corrRoll = 0, corrPitch = 0, corrYaw = 0;
 
     float orientOffRoll = 0, orientOffPitch = 0, orientOffYaw = 0;
+
+    float holdRollRef = 0, holdPitchRef = 0, holdYawRef = 0;
+    bool angleHoldRefValid;
+
+    bool holdLatched = false;
 };
 
 static MotionState gMotion;
@@ -289,16 +296,43 @@ static void maybeLockSharedFrameFromPeer()
     gSharedFrameLocked = true;
 #endif
 }
-
 static void updateStationaryHold()
 {
-    const bool hold = (gMotion.stationary || gMotion.zupt);
     const uint32_t now = millis();
+
+    // Raw request from detectors
+    const bool holdRequest = (gMotion.stationary || gMotion.zupt);
+#if DEBUG_SERIAL_ENABLE && DEBUG_CLAMP_HOLD
+    Serial.printf("Hold requested: %d\n", holdRequest);
+#endif
+    // Movement is the absence of a hold request from the stationary/ZUPT detectors.
+    const bool moved = !holdRequest;
+#if DEBUG_SERIAL_ENABLE && DEBUG_CLAMP_HOLD
+    Serial.printf("Moved: %d\n", moved);
+#endif
+
+    if (holdRequest)
+        gMotion.holdLatched = true;
+    else if (moved)
+        gMotion.holdLatched = false;
+
+#if DEBUG_SERIAL_ENABLE && DEBUG_CLAMP_HOLD
+    Serial.printf("Hold latched: %d", gMotion.holdLatched);
+#endif
+
+    const bool hold = gMotion.holdLatched;
+#if DEBUG_SERIAL_ENABLE && DEBUG_CLAMP_HOLD
+    Serial.printf("Hold: %d\n", hold);
+#endif
 
     imu_setStationary(hold);
     gMotion.imuHoldActive = hold;
 
     const bool enteredHold = (hold && !gMotion.prevHold);
+#if DEBUG_SERIAL_ENABLE && DEBUG_CLAMP_HOLD
+    Serial.printf("Entered hold: %d\n", enteredHold);
+#endif
+
     const bool exitedHold = (!hold && gMotion.prevHold);
 
     // Current corrected orientation from raw + correction
@@ -306,13 +340,55 @@ static void updateStationaryHold()
     const float correctedPitch = wrapAngleDeg(gMotion.rawPitch + gMotion.corrPitch);
     const float correctedYaw = wrapAngleDeg(gMotion.rawYaw + gMotion.corrYaw);
 
+    // Debug output
+#if DEBUG_SERIAL_ENABLE && DEBUG_CLAMP_HOLD
+    Serial.printf(
+        "PITCH DEBUG | raw: %.2f  corr: %.2f  corrected: %.2f\n",
+        gMotion.rawPitch,
+        gMotion.corrPitch,
+        correctedPitch);
+
+    Serial.printf(
+        "ROLL DEBUG | raw: %.2f  corr: %.2f  corrected: %.2f\n",
+        gMotion.rawRoll,
+        gMotion.corrRoll,
+        correctedRoll);
+
+    Serial.printf(
+        "YAW DEBUG | raw: %.2f  corr: %.2f  corrected: %.2f\n",
+        gMotion.rawYaw,
+        gMotion.corrYaw,
+        correctedYaw);
+
+    Serial.printf(
+        "PRE-APPLY | holdRef=(%.2f, %.2f, %.2f) clamp=(%.2f, %.2f, %.2f)\n",
+        gMotion.holdRollRef,
+        gMotion.holdPitchRef,
+        gMotion.holdYawRef,
+        gMotion.clampRoll,
+        gMotion.clampPitch,
+        gMotion.clampYaw);
+#endif
+
     if (enteredHold)
     {
+#if DEBUG_SERIAL_ENABLE && DEBUG_CLAMP_HOLD
+        Serial.println("========= RECALCULATING HOLD =========");
+
+        Serial.printf(
+            "NEW HOLD REF | roll: %.2f  pitch: %.2f  yaw: %.2f\n",
+            correctedRoll,
+            correctedPitch,
+            correctedYaw);
+#endif
+
+        gMotion.holdRollRef = correctedRoll;
+        gMotion.holdPitchRef = correctedPitch;
+        gMotion.holdYawRef = correctedYaw;
+
+        gMotion.angleHoldRefValid = true;
         gMotion.stillSinceMs = now;
         gMotion.resetDoneThisStillness = false;
-
-        // Immediate zero-velocity update on entering stillness
-        // imu_zeroVelocity();
 
         gMotion.clampVelX = 0.0f;
         gMotion.clampVelY = 0.0f;
@@ -326,15 +402,14 @@ static void updateStationaryHold()
 
     if (hold)
     {
-        // Keep velocity killed while stationary
-        // imu_zeroVelocity();
+        // Keep clamp velocity zero while held
+        gMotion.clampVelX = 0.0f;
+        gMotion.clampVelY = 0.0f;
+        gMotion.clampVelZ = 0.0f;
 
         if (!gMotion.resetDoneThisStillness &&
             (now - gMotion.stillSinceMs >= STILL_RESET_MS))
         {
-            // One-time cleanup after enough stillness
-            // imu_zeroVelocity();
-
             // Lock clamp position where it currently is
             gMotion.clampPosX = gMotion.rawPosX + gMotion.corrX;
             gMotion.clampPosY = gMotion.rawPosY + gMotion.corrY;
@@ -349,10 +424,10 @@ static void updateStationaryHold()
             gMotion.clampVelY = 0.0f;
             gMotion.clampVelZ = 0.0f;
 
-            // Re-zero orientation once we've been still long enough
-            gMotion.clampRoll = 0.0f;
-            gMotion.clampPitch = 0.0f;
-            gMotion.clampYaw = 0.0f;
+            // Preserve the orientation captured when hold was first entered.
+            gMotion.clampRoll = gMotion.holdRollRef;
+            gMotion.clampPitch = gMotion.holdPitchRef;
+            gMotion.clampYaw = gMotion.holdYawRef;
 
             gMotion.corrRoll = wrapAngleDeg(gMotion.clampRoll - gMotion.rawRoll);
             gMotion.corrPitch = wrapAngleDeg(gMotion.clampPitch - gMotion.rawPitch);
@@ -365,6 +440,10 @@ static void updateStationaryHold()
     {
         if (exitedHold)
         {
+#if DEBUG_SERIAL_ENABLE && DEBUG_CLAMP_HOLD
+            Serial.println("========= HOLD RELEASED: MOVEMENT DETECTED =========");
+#endif
+
             gMotion.stillSinceMs = 0;
             gMotion.resetDoneThisStillness = false;
         }
@@ -372,7 +451,6 @@ static void updateStationaryHold()
 
     gMotion.prevHold = hold;
 }
-
 static void applyClamps()
 {
     const float correctedX = gMotion.rawPosX + gMotion.corrX;
@@ -382,6 +460,16 @@ static void applyClamps()
     const float correctedRoll = wrapAngleDeg(gMotion.rawRoll + gMotion.corrRoll);
     const float correctedPitch = wrapAngleDeg(gMotion.rawPitch + gMotion.corrPitch);
     const float correctedYaw = wrapAngleDeg(gMotion.rawYaw + gMotion.corrYaw);
+
+    const float gyroMagDps = sqrtf(
+        gMotion.rawGx * gMotion.rawGx +
+        gMotion.rawGy * gMotion.rawGy +
+        gMotion.rawGz * gMotion.rawGz);
+
+    const bool holdAnglesToStoredRef =
+        (gMotion.stationary || gMotion.zupt) &&
+        gMotion.angleHoldRefValid &&
+        (gyroMagDps < GYRO_NOISE_THRESH_DPS);
 
     if (gMotion.stationary || gMotion.zupt)
     {
@@ -394,10 +482,79 @@ static void applyClamps()
         gMotion.clampVelY = 0.0f;
         gMotion.clampVelZ = 0.0f;
 
-        // Hold orientation fixed at last clamped point
-        gMotion.corrRoll = wrapAngleDeg(gMotion.clampRoll - gMotion.rawRoll);
-        gMotion.corrPitch = wrapAngleDeg(gMotion.clampPitch - gMotion.rawPitch);
-        gMotion.corrYaw = wrapAngleDeg(gMotion.clampYaw - gMotion.rawYaw);
+        // Only hold angles if angular motion is just noise
+        if (holdAnglesToStoredRef)
+        {
+#if DEBUG_SERIAL_ENABLE && DEBUG_CLAMP_HOLD
+            Serial.println("ANGLE HOLD ACTIVE");
+            Serial.printf(
+                "APPLY INPUT | gyroMag=%.3f holdValid=%d stationary=%d zupt=%d\n",
+                gyroMagDps,
+                gMotion.angleHoldRefValid,
+                gMotion.stationary,
+                gMotion.zupt);
+
+            Serial.printf(
+                "ROLL HOLD | raw: %.2f  ref: %.2f  corr: %.2f\n",
+                gMotion.rawRoll,
+                gMotion.holdRollRef,
+                wrapAngleDeg(gMotion.holdRollRef - gMotion.rawRoll));
+
+            Serial.printf(
+                "PITCH HOLD | raw: %.2f  ref: %.2f  corr: %.2f\n",
+                gMotion.rawPitch,
+                gMotion.holdPitchRef,
+                wrapAngleDeg(gMotion.holdPitchRef - gMotion.rawPitch));
+
+            Serial.printf(
+                "YAW HOLD | raw: %.2f  ref: %.2f  corr: %.2f\n",
+                gMotion.rawYaw,
+                gMotion.holdYawRef,
+                wrapAngleDeg(gMotion.holdYawRef - gMotion.rawYaw));
+#endif
+
+            gMotion.corrRoll = wrapAngleDeg(gMotion.holdRollRef - gMotion.rawRoll);
+            gMotion.corrPitch = wrapAngleDeg(gMotion.holdPitchRef - gMotion.rawPitch);
+            gMotion.corrYaw = wrapAngleDeg(gMotion.holdYawRef - gMotion.rawYaw);
+
+            gMotion.clampRoll = gMotion.holdRollRef;
+            gMotion.clampPitch = gMotion.holdPitchRef;
+            gMotion.clampYaw = gMotion.holdYawRef;
+
+#if DEBUG_SERIAL_ENABLE && DEBUG_CLAMP_HOLD
+            Serial.printf(
+                "APPLY OUTPUT | corr=(%.2f, %.2f, %.2f) corrected=(%.2f, %.2f, %.2f) clamp=(%.2f, %.2f, %.2f)\n",
+                gMotion.corrRoll,
+                gMotion.corrPitch,
+                gMotion.corrYaw,
+                wrapAngleDeg(gMotion.rawRoll + gMotion.corrRoll),
+                wrapAngleDeg(gMotion.rawPitch + gMotion.corrPitch),
+                wrapAngleDeg(gMotion.rawYaw + gMotion.corrYaw),
+                gMotion.clampRoll,
+                gMotion.clampPitch,
+                gMotion.clampYaw);
+#endif
+        }
+        else
+        {
+            // Let orientation move if gyro says this is real motion
+            gMotion.corrRoll = 0.0f;
+            gMotion.corrPitch = 0.0f;
+            gMotion.corrYaw = 0.0f;
+            gMotion.clampRoll = correctedRoll;
+            gMotion.clampPitch = correctedPitch;
+            gMotion.clampYaw = correctedYaw;
+
+#if DEBUG_SERIAL_ENABLE && DEBUG_CLAMP_HOLD
+            Serial.printf(
+                "ANGLE HOLD BYPASSED | gyroMag=%.3f holdValid=%d corrected=(%.2f, %.2f, %.2f)\n",
+                gyroMagDps,
+                gMotion.angleHoldRefValid,
+                correctedRoll,
+                correctedPitch,
+                correctedYaw);
+#endif
+        }
 
         // imu_zeroVelocity();
     }
@@ -413,6 +570,9 @@ static void applyClamps()
         gMotion.clampVelZ = gMotion.rawVelZ;
 
         // During motion, let corrected orientation evolve
+        gMotion.corrRoll = 0.0f;
+        gMotion.corrPitch = 0.0f;
+        gMotion.corrYaw = 0.0f;
         gMotion.clampRoll = correctedRoll;
         gMotion.clampPitch = correctedPitch;
         gMotion.clampYaw = correctedYaw;
@@ -463,6 +623,9 @@ static void computeRelativeDirection()
 
 static void printDebug()
 {
+#if !(DEBUG_SERIAL_ENABLE && DEBUG_MAIN_STATE)
+    return;
+#else
     Serial.println();
     Serial.println("========== DEBUG ==========");
     Serial.print("SELF_ID=");
@@ -662,6 +825,7 @@ static void printDebug()
 
     Serial.println("===========================");
     Serial.println();
+#endif
 }
 
 void setup()
@@ -673,7 +837,9 @@ void setup()
 
     if (!imu_begin())
     {
+#if DEBUG_SERIAL_ENABLE && DEBUG_BOOT_LOGS
         Serial.println("imu_begin() failed");
+#endif
         while (1)
         {
         }
@@ -681,7 +847,9 @@ void setup()
 
     if (!radio.begin())
     {
+#if DEBUG_SERIAL_ENABLE && DEBUG_BOOT_LOGS
         Serial.println("radio.begin() failed");
+#endif
         while (1)
         {
         }
@@ -696,12 +864,16 @@ void setup()
 
 #if IS_POLLER
     linkBegin(radio, LINK_ROLE_POLLER, SELF_ID);
+#if DEBUG_SERIAL_ENABLE && DEBUG_BOOT_LOGS
     Serial.print("Started as TIME MASTER / POLLER, SELF_ID=");
     Serial.println(SELF_ID);
+#endif
 #else
     linkBegin(radio, LINK_ROLE_RESPONDER, SELF_ID);
+#if DEBUG_SERIAL_ENABLE && DEBUG_BOOT_LOGS
     Serial.print("Started as TIME SLAVE / RESPONDER, SELF_ID=");
     Serial.println(SELF_ID);
+#endif
 #endif
 
     gLastDebugMs = millis();
