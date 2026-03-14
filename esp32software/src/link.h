@@ -9,11 +9,46 @@ enum LinkRole
     LINK_ROLE_RESPONDER
 };
 
+enum LinkPeerDirection : uint8_t
+{
+    LINK_PEER_UNKNOWN = 0,
+    LINK_PEER_FORWARD = 1,
+    LINK_PEER_RIGHT = 2,
+    LINK_PEER_BACK = 3,
+    LINK_PEER_LEFT = 4,
+    LINK_PEER_CLOSE = 5
+};
+
+static constexpr uint16_t LINK_SEQ_COUNTER_MASK = 0x07FF;
+
+inline uint16_t linkPackSeq(uint16_t counter, uint8_t peerDirection, uint8_t confidence)
+{
+    return static_cast<uint16_t>(
+        (counter & LINK_SEQ_COUNTER_MASK) |
+        ((peerDirection & 0x7u) << 11) |
+        ((confidence & 0x3u) << 14));
+}
+
+inline uint16_t linkUnpackCounter(uint16_t packedSeq)
+{
+    return packedSeq & LINK_SEQ_COUNTER_MASK;
+}
+
+inline uint8_t linkUnpackPeerDirection(uint16_t packedSeq)
+{
+    return static_cast<uint8_t>((packedSeq >> 11) & 0x7u);
+}
+
+inline uint8_t linkUnpackPeerConfidence(uint16_t packedSeq)
+{
+    return static_cast<uint8_t>((packedSeq >> 14) & 0x3u);
+}
+
 // nRF24 max payload is 32 bytes.
 // Layout:
 //  1  deviceId
 //  1  flags
-//  2  seq
+//  2  seq (11-bit counter + 3-bit peer direction + 2-bit confidence)
 //  4  timeUs
 // 12  posX,posY,posZ
 //  4  yawDeg

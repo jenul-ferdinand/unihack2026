@@ -1,12 +1,17 @@
 #include <Arduino.h>
+#include <HTTPClient.h>
 #include <SPI.h>
+#include <SPIFFS.h>
+#include <WiFi.h>
 #include <RF24.h>
 #include <math.h>
+#include <memory>
 
 #include "imu.h"
 #include "link.h"
 #include "time_sync.h"
 #include "imu_accel.h"
+#include "dead_reckoning.h"
 #include "debug_config.h"
 
 #define CE_PIN 4
@@ -28,6 +33,9 @@ static uint16_t gSeq = 0;
 static StatePacket localPkt = {};
 static StatePacket peerPkt = {};
 static TimeSyncState gTimeSync;
+static bool gHavePeerPacket = false;
+static bool gPeerPacketStale = false;
+static unsigned long gLastPeerPacketMs = 0;
 
 // ---------- Tunable thresholds ----------
 static const float G_MS2 = 9.80665f;
@@ -104,19 +112,69 @@ struct MotionState
 
 static MotionState gMotion;
 
-// ---------- Peer relative/debug state ----------
-struct RelativeState
-{
-    float dx = 0, dy = 0, dz = 0;
-    float distance = 0;
-    float bearingWorldDeg = 0;
-    float bearingLocalDeg = 0;
-};
-
-static RelativeState gRel;
+static DeadReckoningState gDeadReckoning;
+static DeadReckoningPeerView gDeadPeerView;
 
 // ---------- Timing ----------
 static unsigned long gLastDebugMs = 0;
+static unsigned long gLastTelemetryLogMs = 0;
+static unsigned long gLastWifiCheckMs = 0;
+static constexpr unsigned long PEER_PACKET_STALE_MS = 500;
+
+// ---------- Telemetry persistence / upload ----------
+static constexpr const char *WIFI_SSID = "Christopher's A35";
+static constexpr const char *WIFI_PASSWORD = "its a secret";
+static constexpr const char *WEBHOOK_URL = "http://10.43.196.51:8080/api";
+static constexpr const char *TELEMETRY_LOG_PATH = "/telemetry.bin";
+static constexpr const char *TELEMETRY_TMP_PATH = "/telemetry.tmp";
+static constexpr unsigned long TELEMETRY_LOG_INTERVAL_MS = 100;
+static constexpr unsigned long WIFI_CHECK_INTERVAL_MS = 10000;
+static constexpr unsigned long WIFI_CONNECT_TIMEOUT_MS = 5000;
+static constexpr size_t TELEMETRY_MAX_FILE_BYTES = 7 * 1024 * 1024;
+static constexpr size_t TELEMETRY_TRIM_TARGET_BYTES = 5 * 1024 * 1024;
+static constexpr unsigned long TELEMETRY_SEND_READY_DELAY_MS = 2000;
+static constexpr size_t TELEMETRY_POST_BATCH_RECORDS = 24;
+
+struct __attribute__((packed)) TelemetryVec3
+{
+    float x;
+    float y;
+    float z;
+};
+
+struct __attribute__((packed)) TelemetryLogRecord
+{
+    uint32_t loggedAtMs;
+
+    uint8_t initialYawLocked;
+    float initialYawDeg;
+    uint8_t sharedFrameLocked;
+    float sharedYawOffsetDeg;
+
+    TelemetryVec3 rawPos;
+    TelemetryVec3 rawVel;
+    TelemetryVec3 corrOffset;
+    TelemetryVec3 clampedPos;
+    TelemetryVec3 clampedVel;
+
+    uint8_t peerId;
+    uint32_t peerTimeUs;
+    TelemetryVec3 peerPos;
+    float peerYawDeg;
+    float peerInitYawDeg;
+    float peerSpeedMps;
+
+    TelemetryVec3 deltaXyz;
+    float distanceM;
+    float bearingWorldDeg;
+    float bearingLocalDeg;
+};
+
+static_assert(sizeof(TelemetryLogRecord) == 127, "TelemetryLogRecord layout changed unexpectedly");
+
+static bool gTelemetryPausedForSend = false;
+static bool gTelemetryReadyPrinted = false;
+static unsigned long gTelemetryReadyAtMs = 0;
 
 // ---------- Utility ----------
 static float wrapAngleDeg(float deg)
@@ -138,6 +196,453 @@ static float degToRad(float deg)
     return deg * PI / 180.0f;
 }
 
+static bool wifiConfigured()
+{
+    return WIFI_SSID[0] != '\0' && WEBHOOK_URL[0] != '\0';
+}
+
+static void appendFloat(String &json, float value, int decimals)
+{
+    char buffer[32];
+    snprintf(buffer, sizeof(buffer), "%.*f", decimals, value);
+    json += buffer;
+}
+
+static void appendVec3Json(String &json, const char *key, const TelemetryVec3 &vec, int decimals)
+{
+    json += "\"";
+    json += key;
+    json += "\":{";
+    json += "\"x\":";
+    appendFloat(json, vec.x, decimals);
+    json += ",\"y\":";
+    appendFloat(json, vec.y, decimals);
+    json += ",\"z\":";
+    appendFloat(json, vec.z, decimals);
+    json += "}";
+}
+
+static TelemetryVec3 makeVec3(float x, float y, float z)
+{
+    TelemetryVec3 vec{};
+    vec.x = x;
+    vec.y = y;
+    vec.z = z;
+    return vec;
+}
+
+static TelemetryLogRecord captureTelemetryRecord()
+{
+    TelemetryLogRecord record{};
+    record.loggedAtMs = millis();
+
+    record.initialYawLocked = gInitialYawLocked ? 1 : 0;
+    record.initialYawDeg = gInitialYawDeg;
+    record.sharedFrameLocked = gSharedFrameLocked ? 1 : 0;
+    record.sharedYawOffsetDeg = gSharedYawOffsetDeg;
+
+    record.rawPos = makeVec3(gMotion.rawPosX, gMotion.rawPosY, gMotion.rawPosZ);
+    record.rawVel = makeVec3(gMotion.rawVelX, gMotion.rawVelY, gMotion.rawVelZ);
+    record.corrOffset = makeVec3(gMotion.corrX, gMotion.corrY, gMotion.corrZ);
+    record.clampedPos = makeVec3(gMotion.clampPosX, gMotion.clampPosY, gMotion.clampPosZ);
+    record.clampedVel = makeVec3(gMotion.clampVelX, gMotion.clampVelY, gMotion.clampVelZ);
+
+    record.peerId = peerPkt.deviceId;
+    record.peerTimeUs = peerPkt.timeUs;
+    record.peerPos = makeVec3(peerPkt.posX, peerPkt.posY, peerPkt.posZ);
+    record.peerYawDeg = peerPkt.yawDeg;
+    record.peerInitYawDeg = peerPkt.initYawDeg;
+    record.peerSpeedMps = peerPkt.speedMps;
+
+    record.deltaXyz = makeVec3(gDeadPeerView.dx, gDeadPeerView.dy, gDeadPeerView.dz);
+    record.distanceM = gDeadPeerView.distance;
+    record.bearingWorldDeg = gDeadPeerView.bearingWorldDeg;
+    record.bearingLocalDeg = gDeadPeerView.bearingLocalDeg;
+
+    return record;
+}
+
+static String telemetryRecordToJson(const TelemetryLogRecord &record)
+{
+    String json;
+    json.reserve(700);
+
+    json += "{";
+    json += "\"shared_frame\":{";
+    json += "\"initial_yaw_locked\":";
+    json += String(record.initialYawLocked);
+    json += ",\"initial_yaw_deg\":";
+    appendFloat(json, record.initialYawDeg, 2);
+    json += ",\"shared_frame_locked\":";
+    json += String(record.sharedFrameLocked);
+    json += ",\"shared_yaw_offset_deg\":";
+    appendFloat(json, record.sharedYawOffsetDeg, 2);
+    json += "},";
+
+    json += "\"position_velocity\":{";
+    appendVec3Json(json, "raw_pos", record.rawPos, 3);
+    json += ",";
+    appendVec3Json(json, "raw_vel", record.rawVel, 3);
+    json += ",";
+    appendVec3Json(json, "corr_offset", record.corrOffset, 3);
+    json += ",";
+    appendVec3Json(json, "clamped_pos", record.clampedPos, 3);
+    json += ",";
+    appendVec3Json(json, "clamped_vel", record.clampedVel, 3);
+    json += "},";
+
+    json += "\"peer_state\":{";
+    json += "\"peer_id\":";
+    json += String(record.peerId);
+    json += ",\"peer_t_us\":";
+    json += String(record.peerTimeUs);
+    json += ",";
+    appendVec3Json(json, "peer_pos", record.peerPos, 3);
+    json += ",\"peer_yaw_deg\":";
+    appendFloat(json, record.peerYawDeg, 2);
+    json += ",\"peer_init_yaw_deg\":";
+    appendFloat(json, record.peerInitYawDeg, 2);
+    json += ",\"peer_speed_mps\":";
+    appendFloat(json, record.peerSpeedMps, 3);
+    json += "},";
+
+    json += "\"relative_to_peer\":{";
+    appendVec3Json(json, "delta_xyz", record.deltaXyz, 3);
+    json += ",\"distance_m\":";
+    appendFloat(json, record.distanceM, 3);
+    json += ",\"bearing_world_deg\":";
+    appendFloat(json, record.bearingWorldDeg, 2);
+    json += ",\"bearing_local_deg\":";
+    appendFloat(json, record.bearingLocalDeg, 2);
+    json += "}";
+    json += "}";
+
+    return json;
+}
+
+static void trimTelemetryLogIfNeeded()
+{
+    File src = SPIFFS.open(TELEMETRY_LOG_PATH, FILE_READ);
+    if (!src)
+        return;
+
+    const size_t currentSize = src.size();
+    if (currentSize <= TELEMETRY_MAX_FILE_BYTES)
+    {
+        src.close();
+        return;
+    }
+
+    const size_t bytesToKeep = min(currentSize, TELEMETRY_TRIM_TARGET_BYTES);
+    const size_t startOffset = currentSize - bytesToKeep;
+    src.seek(startOffset, SeekSet);
+
+    File dst = SPIFFS.open(TELEMETRY_TMP_PATH, FILE_WRITE);
+    if (!dst)
+    {
+        src.close();
+        return;
+    }
+
+    uint8_t buffer[512];
+    while (src.available())
+    {
+        const size_t chunk = src.read(buffer, sizeof(buffer));
+        if (chunk == 0)
+            break;
+        dst.write(buffer, chunk);
+    }
+
+    src.close();
+    dst.close();
+
+    SPIFFS.remove(TELEMETRY_LOG_PATH);
+    SPIFFS.rename(TELEMETRY_TMP_PATH, TELEMETRY_LOG_PATH);
+}
+
+static void appendTelemetryLogRecord(const TelemetryLogRecord &record)
+{
+    File file = SPIFFS.open(TELEMETRY_LOG_PATH, FILE_APPEND);
+    if (!file)
+        return;
+
+    file.write(reinterpret_cast<const uint8_t *>(&record), sizeof(record));
+    file.close();
+    trimTelemetryLogIfNeeded();
+}
+
+static void discardTelemetryPrefix(size_t bytesToDrop)
+{
+    File src = SPIFFS.open(TELEMETRY_LOG_PATH, FILE_READ);
+    if (!src)
+        return;
+
+    const size_t totalSize = src.size();
+    if (bytesToDrop >= totalSize)
+    {
+        src.close();
+        SPIFFS.remove(TELEMETRY_LOG_PATH);
+        return;
+    }
+
+    src.seek(bytesToDrop, SeekSet);
+
+    File dst = SPIFFS.open(TELEMETRY_TMP_PATH, FILE_WRITE);
+    if (!dst)
+    {
+        src.close();
+        return;
+    }
+
+    uint8_t buffer[512];
+    while (src.available())
+    {
+        const size_t chunk = src.read(buffer, sizeof(buffer));
+        if (chunk == 0)
+            break;
+        dst.write(buffer, chunk);
+    }
+
+    src.close();
+    dst.close();
+
+    SPIFFS.remove(TELEMETRY_LOG_PATH);
+    SPIFFS.rename(TELEMETRY_TMP_PATH, TELEMETRY_LOG_PATH);
+}
+
+static bool ensureWifiConnected()
+{
+    if (!wifiConfigured())
+    {
+        Serial.println("WiFi check skipped: SSID or webhook URL not configured.");
+        return false;
+    }
+
+    if (WiFi.status() == WL_CONNECTED)
+    {
+        Serial.print("WiFi already connected. IP=");
+        Serial.println(WiFi.localIP());
+        return true;
+    }
+
+    Serial.print("Attempting WiFi connection to SSID: ");
+    Serial.println(WIFI_SSID);
+    Serial.print("WiFi status before begin: ");
+    Serial.println(WiFi.status());
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+    const unsigned long startMs = millis();
+    while (WiFi.status() != WL_CONNECTED && (millis() - startMs) < WIFI_CONNECT_TIMEOUT_MS)
+    {
+        Serial.print("WiFi connecting, status=");
+        Serial.println(WiFi.status());
+        delay(100);
+    }
+
+    Serial.print("WiFi connect result status=");
+    Serial.println(WiFi.status());
+    if (WiFi.status() == WL_CONNECTED)
+    {
+        Serial.print("WiFi connected. IP=");
+        Serial.println(WiFi.localIP());
+    }
+
+    return WiFi.status() == WL_CONNECTED;
+}
+
+static bool hasQueuedTelemetry()
+{
+    File file = SPIFFS.open(TELEMETRY_LOG_PATH, FILE_READ);
+    if (!file)
+        return false;
+
+    const bool hasData = file.size() >= sizeof(TelemetryLogRecord);
+    file.close();
+    return hasData;
+}
+
+static void printQueuedTelemetryStats()
+{
+    File file = SPIFFS.open(TELEMETRY_LOG_PATH, FILE_READ);
+    if (!file)
+    {
+        Serial.println("Queued telemetry: file missing or empty.");
+        return;
+    }
+
+    const size_t bytes = file.size();
+    const size_t samples = bytes / sizeof(TelemetryLogRecord);
+    file.close();
+
+    Serial.print("Queued telemetry bytes=");
+    Serial.print(bytes);
+    Serial.print(", samples=");
+    Serial.println(samples);
+}
+
+static bool postTelemetryBatch(size_t &sentRecordsOut)
+{
+    sentRecordsOut = 0;
+
+    if (!wifiConfigured() || !ensureWifiConnected())
+        return false;
+
+    File file = SPIFFS.open(TELEMETRY_LOG_PATH, FILE_READ);
+    if (!file)
+        return false;
+
+    const size_t fileSize = file.size();
+    const size_t recordSize = sizeof(TelemetryLogRecord);
+    const size_t availableRecords = fileSize / recordSize;
+    if (availableRecords == 0)
+    {
+        file.close();
+        return true;
+    }
+
+    const size_t batchRecords = min(availableRecords, TELEMETRY_POST_BATCH_RECORDS);
+    String payload;
+    payload.reserve(128 + (batchRecords * 700));
+    payload += "{";
+    payload += "\"device_id\":";
+    payload += String(SELF_ID);
+    payload += ",\"sample_count\":";
+    payload += String(batchRecords);
+    payload += ",\"samples\":[";
+
+    TelemetryLogRecord record{};
+    size_t sentRecords = 0;
+    while (sentRecords < batchRecords &&
+           file.read(reinterpret_cast<uint8_t *>(&record), sizeof(record)) == sizeof(record))
+    {
+        if (sentRecords > 0)
+            payload += ",";
+        payload += telemetryRecordToJson(record);
+        sentRecords++;
+    }
+
+    file.close();
+    payload += "]}";
+
+    if (sentRecords == 0)
+        return true;
+
+    HTTPClient http;
+    Serial.print("Posting telemetry to ");
+    Serial.println(WEBHOOK_URL);
+    Serial.print("Telemetry batch samples=");
+    Serial.println(sentRecords);
+    Serial.print("Telemetry payload bytes=");
+    Serial.println(payload.length());
+
+    http.begin(WEBHOOK_URL);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("Accept", "application/json");
+    http.useHTTP10(true);
+
+    std::unique_ptr<char[]> requestBody(new char[payload.length() + 1]);
+    memcpy(requestBody.get(), payload.c_str(), payload.length() + 1);
+
+    const int responseCode = http.POST(reinterpret_cast<uint8_t *>(requestBody.get()), payload.length());
+    const String responseBody = http.getString();
+    http.end();
+
+    Serial.print("Telemetry POST response code=");
+    Serial.println(responseCode);
+    Serial.print("Telemetry POST response body=");
+    Serial.println(responseBody);
+
+    if (responseCode < 200 || responseCode >= 300)
+        return false;
+
+    discardTelemetryPrefix(sentRecords * sizeof(TelemetryLogRecord));
+    sentRecordsOut = sentRecords;
+    return true;
+}
+
+static void maybeLogTelemetry()
+{
+    if (gTelemetryPausedForSend)
+        return;
+
+    const unsigned long nowMs = millis();
+    if (nowMs - gLastTelemetryLogMs < TELEMETRY_LOG_INTERVAL_MS)
+        return;
+
+    gLastTelemetryLogMs = nowMs;
+    const TelemetryLogRecord record = captureTelemetryRecord();
+    appendTelemetryLogRecord(record);
+}
+
+static void maybeUploadTelemetry()
+{
+    const unsigned long nowMs = millis();
+
+    if (gTelemetryPausedForSend)
+    {
+        if (!gTelemetryReadyPrinted)
+        {
+            Serial.println("WiFi connected. Telemetry paused. Ready to send queued JSON in 2 seconds.");
+            gTelemetryReadyPrinted = true;
+            gTelemetryReadyAtMs = nowMs;
+        }
+
+        if (nowMs - gTelemetryReadyAtMs < TELEMETRY_SEND_READY_DELAY_MS)
+            return;
+
+        size_t sentRecords = 0;
+        const bool sent = postTelemetryBatch(sentRecords);
+        if (sent)
+        {
+            Serial.print("Queued telemetry batch sent. Samples sent=");
+            Serial.println(sentRecords);
+        }
+        else
+        {
+            Serial.println("Queued telemetry send failed.");
+        }
+
+        if (!hasQueuedTelemetry() || !sent)
+        {
+            gTelemetryPausedForSend = false;
+            gTelemetryReadyPrinted = false;
+            gTelemetryReadyAtMs = 0;
+            gLastWifiCheckMs = nowMs;
+        }
+        else
+        {
+            gTelemetryReadyPrinted = true;
+            gTelemetryReadyAtMs = nowMs;
+            Serial.println("More queued telemetry remains. Sending next batch in 2 seconds.");
+        }
+        return;
+    }
+
+    if (nowMs - gLastWifiCheckMs < WIFI_CHECK_INTERVAL_MS)
+        return;
+
+    gLastWifiCheckMs = nowMs;
+    Serial.println("Running 10 second WiFi/telemetry check.");
+    printQueuedTelemetryStats();
+
+    if (!hasQueuedTelemetry())
+    {
+        Serial.println("No queued telemetry to send.");
+        return;
+    }
+
+    if (!ensureWifiConnected())
+    {
+        Serial.println("WiFi not connected, telemetry send deferred.");
+        return;
+    }
+
+    gTelemetryPausedForSend = true;
+    gTelemetryReadyPrinted = false;
+    gTelemetryReadyAtMs = nowMs;
+}
+
 static void rotate2D(float x, float y, float yawDeg, float &outX, float &outY)
 {
     const float r = degToRad(yawDeg);
@@ -155,7 +660,7 @@ static uint8_t buildFlags()
     // bit1 = ZUPT active
     // bit2 = stationary
     // bit3 = heading / time reliable
-    // bit4 = reserved
+    // bit4 = moved, then stationary lock is trusted
     // bit5 = reserved
     // bit6 = initial yaw valid / shared frame info valid
     // bit7 = shared frame locked locally
@@ -178,6 +683,8 @@ static uint8_t buildFlags()
         flags |= (1 << 6);
     if (gSharedFrameLocked)
         flags |= (1 << 7);
+    if (gDeadReckoning.lockedAfterMove)
+        flags |= (1 << 4);
 
     return flags;
 }
@@ -271,7 +778,7 @@ static void maybeLockInitialYaw()
     if (millis() - gMotion.stillSinceMs < STILL_RESET_MS)
         return;
 
-    gInitialYawDeg = gMotion.rawYaw;
+    gInitialYawDeg = gDeadReckoning.quantizedMoveHeadingDeg;
     gInitialYawLocked = true;
 
 #if IS_TIME_MASTER
@@ -583,47 +1090,56 @@ static void fillLocalPacket(StatePacket &pkt)
 {
     pkt.deviceId = SELF_ID;
     pkt.flags = buildFlags();
-    pkt.seq = gSeq++;
+    pkt.seq = linkPackSeq(gSeq++, gDeadPeerView.directionCode, gDeadPeerView.directionConfidence);
     pkt.timeUs = sharedNowUs();
 
-    pkt.yawDeg = gMotion.clampYaw; // TODO CLAMP YAW
+    pkt.yawDeg = gDeadReckoning.snappedCompareHeadingDeg;
     pkt.initYawDeg = gInitialYawDeg;
 
-    float tx = gMotion.clampPosX;
-    float ty = gMotion.clampPosY;
-    float tz = gMotion.clampPosZ;
-
-    if (gSharedFrameLocked)
-        rotate2D(gMotion.clampPosX, gMotion.clampPosY, gSharedYawOffsetDeg, tx, ty);
+    float tx = 0.0f;
+    float ty = 0.0f;
+    float tz = 0.0f;
+    deadReckoningGetSharedPosition(gDeadReckoning, gSharedFrameLocked, gSharedYawOffsetDeg, tx, ty, tz);
 
     pkt.posX = tx;
     pkt.posY = ty;
     pkt.posZ = tz;
 
-    pkt.speedMps = vecNorm3(gMotion.clampVelX, gMotion.clampVelY, gMotion.clampVelZ);
+    pkt.speedMps = gDeadReckoning.speedMps;
 }
 
 static void computeRelativeDirection()
 {
-    float myX = gMotion.clampPosX;
-    float myY = gMotion.clampPosY;
+    deadReckoningComputePeerView(
+        gDeadReckoning,
+        gSharedFrameLocked,
+        gSharedYawOffsetDeg,
+        gDeadReckoning.snappedCompareHeadingDeg,
+        peerPkt.posX,
+        peerPkt.posY,
+        peerPkt.posZ,
+        gDeadPeerView);
 
-    if (gSharedFrameLocked)
-        rotate2D(gMotion.clampPosX, gMotion.clampPosY, gSharedYawOffsetDeg, myX, myY);
-
-    gRel.dx = peerPkt.posX - myX;
-    gRel.dy = peerPkt.posY - myY;
-    gRel.dz = peerPkt.posZ - gMotion.clampPosZ;
-
-    gRel.distance = vecNorm3(gRel.dx, gRel.dy, gRel.dz);
-
-    gRel.bearingWorldDeg = atan2f(gRel.dy, gRel.dx) * 180.0f / PI;
-    gRel.bearingLocalDeg = wrapAngleDeg(gRel.bearingWorldDeg - gMotion.clampYaw); // TODO CLAMP YAW
+    deadReckoningApplyPeerTruth(
+        gDeadReckoning,
+        gSharedFrameLocked,
+        gSharedYawOffsetDeg,
+        peerPkt.posX,
+        peerPkt.posY,
+        peerPkt.posZ,
+        peerPkt.yawDeg,
+        linkUnpackPeerDirection(peerPkt.seq),
+        linkUnpackPeerConfidence(peerPkt.seq),
+        (peerPkt.flags & (1 << 2)) != 0,
+        (peerPkt.flags & (1 << 4)) != 0,
+        gMotion.stationary,
+        gDeadReckoning.lockedAfterMove,
+        gDeadPeerView);
 }
 
 static void printDebug()
 {
-#if !(DEBUG_SERIAL_ENABLE && DEBUG_MAIN_STATE)
+#if !(DEBUG_SERIAL_ENABLE && (DEBUG_MAIN_STATE || DEBUG_DEAD_RECKONING))
     return;
 #else
     Serial.println();
@@ -773,11 +1289,49 @@ static void printDebug()
     Serial.print(gMotion.clampVelZ, 3);
     Serial.println(")");
 
+    Serial.println("-- Dead Reckoning --");
+    Serial.print("accel_mag_ms2=");
+    Serial.println(gDeadReckoning.accelMss, 3);
+    Serial.print("step_m=");
+    Serial.println(gDeadReckoning.stepMeters, 4);
+    Serial.print("gyro_heading_deg=");
+    Serial.println(gDeadReckoning.gyroHeadingDeg, 2);
+    Serial.print("quantized_move_heading_deg=");
+    Serial.println(gDeadReckoning.quantizedMoveHeadingDeg, 2);
+    Serial.print("snapped_roll_deg=");
+    Serial.println(gDeadReckoning.snappedCompareRollDeg, 2);
+    Serial.print("snapped_heading_deg=");
+    Serial.println(gDeadReckoning.snappedCompareHeadingDeg, 2);
+    Serial.print("snapped_facing=");
+    Serial.println(gDeadReckoning.snappedFacingName);
+    Serial.print("locked_after_move=");
+    Serial.println(gDeadReckoning.lockedAfterMove ? "yes" : "no");
+    Serial.print("dead_reckon_speed_mps=");
+    Serial.println(gDeadReckoning.speedMps, 3);
+    Serial.print("dead_reckon_pos=(");
+    Serial.print(gDeadReckoning.posX, 3);
+    Serial.print(", ");
+    Serial.print(gDeadReckoning.posY, 3);
+    Serial.print(", ");
+    Serial.print(gDeadReckoning.posZ, 3);
+    Serial.println(")");
+    Serial.print("dead_reckon_vel=(");
+    Serial.print(gDeadReckoning.velX, 3);
+    Serial.print(", ");
+    Serial.print(gDeadReckoning.velY, 3);
+    Serial.print(", ");
+    Serial.print(gDeadReckoning.velZ, 3);
+    Serial.println(")");
+
     Serial.println("-- Peer State --");
     Serial.print("peer_id=");
     Serial.println(peerPkt.deviceId);
+    Serial.print("peer_packet_stale=");
+    Serial.println(gPeerPacketStale ? "yes" : "no");
     Serial.print("peer_t_us=");
     Serial.println(peerPkt.timeUs);
+    Serial.print("peer_seq_counter=");
+    Serial.println(linkUnpackCounter(peerPkt.seq));
     Serial.print("peer_pos=(");
     Serial.print(peerPkt.posX, 3);
     Serial.print(", ");
@@ -791,21 +1345,35 @@ static void printDebug()
     Serial.println(peerPkt.initYawDeg, 2);
     Serial.print("peer_speed_mps=");
     Serial.println(peerPkt.speedMps, 3);
+    Serial.print("peer_locked_after_move=");
+    Serial.println(((peerPkt.flags & (1 << 4)) != 0) ? "yes" : "no");
+    Serial.print("peer_reports_me_as=");
+    Serial.println(deadReckoningDirectionName(linkUnpackPeerDirection(peerPkt.seq)));
+    Serial.print("peer_report_confidence=");
+    Serial.println(linkUnpackPeerConfidence(peerPkt.seq));
 
     Serial.println("-- Relative To Peer --");
     Serial.print("delta_xyz=(");
-    Serial.print(gRel.dx, 3);
+    Serial.print(gDeadPeerView.dx, 3);
     Serial.print(", ");
-    Serial.print(gRel.dy, 3);
+    Serial.print(gDeadPeerView.dy, 3);
     Serial.print(", ");
-    Serial.print(gRel.dz, 3);
+    Serial.print(gDeadPeerView.dz, 3);
     Serial.println(")");
     Serial.print("distance_m=");
-    Serial.println(gRel.distance, 3);
+    Serial.println(gDeadPeerView.distance, 3);
     Serial.print("bearing_world_deg=");
-    Serial.println(gRel.bearingWorldDeg, 2);
+    Serial.println(gDeadPeerView.bearingWorldDeg, 2);
     Serial.print("bearing_local_deg=");
-    Serial.println(gRel.bearingLocalDeg, 2);
+    Serial.println(gDeadPeerView.bearingLocalDeg, 2);
+    Serial.print("peer_close=");
+    Serial.println(gDeadPeerView.isClose ? "yes" : "no");
+    Serial.print("peer_direction=");
+    Serial.println(deadReckoningDirectionName(gDeadPeerView.directionCode));
+    Serial.print("peer_direction_confidence=");
+    Serial.println(gDeadPeerView.directionConfidence);
+    Serial.print("peer_truth_applied=");
+    Serial.println(gDeadReckoning.peerTruthApplied ? "yes" : "no");
 
     Serial.print("euler_raw_deg=(roll=");
     Serial.print(gMotion.rawRoll, 2);
@@ -814,6 +1382,8 @@ static void printDebug()
     Serial.print(", yaw=");
     Serial.print(gMotion.rawYaw, 2);
     Serial.println(")");
+    Serial.print("euler_raw_facing=");
+    Serial.println(gDeadReckoning.snappedFacingName);
 
     Serial.print("euler_clamped_deg=(roll=");
     Serial.print(gMotion.clampRoll, 2);
@@ -832,6 +1402,10 @@ void setup()
 {
     Serial.begin(115200);
     delay(1000);
+
+    SPIFFS.begin(true);
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect(true, true);
 
     SPI.begin(18, 19, 23, 5);
 
@@ -877,6 +1451,9 @@ void setup()
 #endif
 
     gLastDebugMs = millis();
+    gLastTelemetryLogMs = millis();
+    gLastWifiCheckMs = millis();
+    deadReckoningInit(gDeadReckoning, micros());
 }
 
 void loop()
@@ -885,8 +1462,18 @@ void loop()
     captureImuState();
     detectMotionFlags();
     updateStationaryHold();
-    maybeLockInitialYaw();
     applyClamps();
+
+    DeadReckoningInput drInput{};
+    drInput.linAccelBodyX = gMotion.linAxB;
+    drInput.linAccelBodyY = gMotion.linAyB;
+    drInput.linAccelBodyZ = gMotion.linAzB;
+    drInput.gyroHeadingDeg = gMotion.clampYaw;
+    drInput.compareRollDeg = gMotion.rawRoll;
+    drInput.stationary = gMotion.stationary;
+    drInput.zupt = gMotion.zupt;
+    deadReckoningUpdate(gDeadReckoning, drInput, micros());
+    maybeLockInitialYaw();
 
     fillLocalPacket(localPkt);
     linkSetLocalState(localPkt);
@@ -894,12 +1481,18 @@ void loop()
 #if IS_POLLER
     if (linkExchange(radio, peerPkt))
     {
+        gHavePeerPacket = true;
+        gPeerPacketStale = false;
+        gLastPeerPacketMs = millis();
         computeRelativeDirection();
     }
 #else
     if (linkPollResponder(radio, peerPkt))
     {
         const uint32_t localRxUs = micros();
+        gHavePeerPacket = true;
+        gPeerPacketStale = false;
+        gLastPeerPacketMs = millis();
 
         if (peerPkt.deviceId == 1)
             timeSyncObserveMaster(gTimeSync, localRxUs, peerPkt.timeUs);
@@ -908,6 +1501,12 @@ void loop()
         computeRelativeDirection();
     }
 #endif
+
+    if (gHavePeerPacket && (millis() - gLastPeerPacketMs > PEER_PACKET_STALE_MS))
+    {
+        gPeerPacketStale = true;
+        computeRelativeDirection();
+    }
 
 #if IS_POLLER
     // Master always defines the shared frame
@@ -923,6 +1522,9 @@ void loop()
         gLastDebugMs = millis();
         printDebug();
     }
+
+    maybeLogTelemetry();
+    maybeUploadTelemetry();
 
 #if IS_POLLER
     delay(20);
