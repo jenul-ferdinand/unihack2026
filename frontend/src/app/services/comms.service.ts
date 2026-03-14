@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 export interface Vec3 {
   x: number;
@@ -36,7 +37,7 @@ export interface RunDetailResponse {
 
 @Injectable({ providedIn: 'root' })
 export class CommsService {
-  private runsBase = '/api/runs';
+  private runsBase = `${environment.apiBase}/api/runs`;
 
   constructor(private http: HttpClient) {}
 
