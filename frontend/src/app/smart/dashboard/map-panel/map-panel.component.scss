@@ -1,8 +1,10 @@
+@use 'variables' as *;
+
 .map-panel {
   flex: 1;
   height: 100%;
   padding: 1.5rem;
-  background: #0f0f1a;
+  background: $bg-base;
 }
 
 h2 {
@@ -11,5 +13,5 @@ h2 {
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #888;
+  color: $text-muted;
 }
