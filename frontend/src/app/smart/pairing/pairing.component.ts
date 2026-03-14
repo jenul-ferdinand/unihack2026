@@ -1,5 +1,5 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
-import { Subscription, interval, switchMap, startWith } from 'rxjs';
+import { Subscription, EMPTY, interval, switchMap, startWith, catchError } from 'rxjs';
 import { PairService } from '../../services/pair.service';
 
 @Component({
@@ -23,25 +23,29 @@ export class PairingComponent implements OnInit, OnDestroy {
     this.pollSub = interval(2000)
       .pipe(
         startWith(0),
-        switchMap(() => this.pairService.getStatus()),
+        switchMap(() =>
+          this.pairService.getStatus().pipe(
+            catchError((err) => {
+              console.error('Failed to poll pair status:', err);
+              return EMPTY;
+            }),
+          ),
+        ),
       )
-      .subscribe({
-        next: (status) => {
-          if (status.paired) {
-            this.paired = true;
-            this.device1Connected = true;
-            this.device2Connected = true;
-            this.device1Ip = status.paired.device_ip;
-            this.device2Ip = status.paired.peer_ip;
-          } else {
-            this.paired = false;
-            this.device1Connected = status.pending_count > 0;
-            this.device2Connected = false;
-            this.device1Ip = null;
-            this.device2Ip = null;
-          }
-        },
-        error: (err) => console.error('Failed to poll pair status:', err),
+      .subscribe((status) => {
+        if (status.paired) {
+          this.paired = true;
+          this.device1Connected = true;
+          this.device2Connected = true;
+          this.device1Ip = status.paired.device_ip;
+          this.device2Ip = status.paired.peer_ip;
+        } else {
+          this.paired = false;
+          this.device1Connected = status.pending_count > 0;
+          this.device2Connected = false;
+          this.device1Ip = null;
+          this.device2Ip = null;
+        }
       });
   }
 
