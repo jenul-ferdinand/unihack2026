@@ -36,15 +36,19 @@ export interface RunDetailResponse {
 
 @Injectable({ providedIn: 'root' })
 export class CommsService {
-  private base = '/api/comms';
+  private runsBase = '/api/runs';
 
   constructor(private http: HttpClient) {}
 
   getRuns(): Observable<RunsListResponse> {
-    return this.http.get<RunsListResponse>(`${this.base}/runs`);
+    return this.http.get<RunsListResponse>(this.runsBase);
   }
 
   getRunDetail(id: string): Observable<RunDetailResponse> {
-    return this.http.get<RunDetailResponse>(`${this.base}/runs/${id}`);
+    return this.http.get<RunDetailResponse>(`${this.runsBase}/${id}`);
+  }
+
+  startDemo(): Observable<{ run_id: string }> {
+    return this.http.post<{ run_id: string }>(`${this.runsBase}/demo`, {});
   }
 }

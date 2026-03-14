@@ -29,6 +29,7 @@ export class MapPanelComponent implements AfterViewInit, OnDestroy {
   private peerPath: THREE.Vector3[] = [];
   private deviceLine!: THREE.Line;
   private peerLine!: THREE.Line;
+  private readonly GLOBE_RADIUS = 80;
 
   constructor(private ngZone: NgZone) {}
 
@@ -46,8 +47,9 @@ export class MapPanelComponent implements AfterViewInit, OnDestroy {
 
   /** Call this to append new positions from incoming comms data */
   addPoints(device: { x: number; y: number; z: number }, peer: { x: number; y: number; z: number }): void {
-    this.devicePath.push(new THREE.Vector3(device.x, device.y, device.z));
-    this.peerPath.push(new THREE.Vector3(peer.x, peer.y, peer.z));
+    const r = this.GLOBE_RADIUS;
+    this.devicePath.push(new THREE.Vector3(device.x, device.y + r, device.z));
+    this.peerPath.push(new THREE.Vector3(peer.x, peer.y + r, peer.z));
     this.updateLine(this.deviceLine, this.devicePath);
     this.updateLine(this.peerLine, this.peerPath);
   }
@@ -78,7 +80,7 @@ export class MapPanelComponent implements AfterViewInit, OnDestroy {
 
     // Camera
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 2000);
-    this.camera.position.set(30, 20, 30);
+    this.camera.position.set(160, 100, 160);
 
     // Controls
     this.controls = new OrbitControls(this.camera, canvas);
@@ -86,7 +88,7 @@ export class MapPanelComponent implements AfterViewInit, OnDestroy {
     this.controls.dampingFactor = 0.1;
 
     // Globe
-    const globeGeo = new THREE.SphereGeometry(15, 32, 32);
+    const globeGeo = new THREE.SphereGeometry(this.GLOBE_RADIUS, 32, 32);
     const globeMat = new THREE.MeshBasicMaterial({
       color: this.cssColor('--globe-wire'),
       transparent: true,

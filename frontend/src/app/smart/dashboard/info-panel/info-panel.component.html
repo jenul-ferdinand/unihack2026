@@ -1,7 +1,12 @@
 <section class="info-panel">
   <div class="header">
     <h2>Runs</h2>
-    <button class="refresh-btn" (click)="refresh()">Refresh</button>
+    <div class="header-actions">
+      <button class="demo-btn" (click)="demo()" [disabled]="demoLoading">
+        @if (demoLoading) { Running... } @else { Demo Run }
+      </button>
+      <button class="refresh-btn" (click)="refresh()">Refresh</button>
+    </div>
   </div>
 
   @if (runs.length === 0) {

@@ -1,8 +1,9 @@
 import mongoose, { Schema, Document } from 'mongoose';
+import type { Vector3 } from '@unihack/types';
 
 export interface IPathPoint {
-  device_pos: { x: number; y: number; z: number };
-  peer_pos: { x: number; y: number; z: number };
+  device_pos: Vector3;
+  peer_pos: Vector3;
   timestamp: string;
 }
 

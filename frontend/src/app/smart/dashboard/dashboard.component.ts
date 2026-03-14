@@ -17,6 +17,7 @@ export class DashboardComponent implements OnInit {
   runs: RunSummary[] = [];
   selectedRunId: string | null = null;
   loading = false;
+  demoLoading = false;
 
   constructor(private commsService: CommsService) {}
 
@@ -46,6 +47,21 @@ export class DashboardComponent implements OnInit {
       error: (err) => {
         console.error('Failed to load run detail:', err);
         this.loading = false;
+      },
+    });
+  }
+
+  onDemoRequested(): void {
+    this.demoLoading = true;
+    this.commsService.startDemo().subscribe({
+      next: (res) => {
+        this.demoLoading = false;
+        this.loadRuns();
+        this.onRunSelected(res.run_id);
+      },
+      error: (err) => {
+        console.error('Failed to start demo:', err);
+        this.demoLoading = false;
       },
     });
   }

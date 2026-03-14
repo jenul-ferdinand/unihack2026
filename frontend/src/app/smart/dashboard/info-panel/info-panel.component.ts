@@ -12,8 +12,10 @@ import { RunSummary } from '../../../services/comms.service';
 export class InfoPanelComponent {
   @Input() runs: RunSummary[] = [];
   @Input() selectedRunId: string | null = null;
+  @Input() demoLoading = false;
   @Output() runSelected = new EventEmitter<string>();
   @Output() refreshRequested = new EventEmitter<void>();
+  @Output() demoRequested = new EventEmitter<void>();
 
   selectRun(id: string): void {
     this.runSelected.emit(id);
@@ -21,6 +23,10 @@ export class InfoPanelComponent {
 
   refresh(): void {
     this.refreshRequested.emit();
+  }
+
+  demo(): void {
+    this.demoRequested.emit();
   }
 
   formatDate(iso: string): string {
