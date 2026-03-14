@@ -3,8 +3,10 @@
   <app-info-panel
     [runs]="runs"
     [selectedRunId]="selectedRunId"
+    [demoLoading]="demoLoading"
     (runSelected)="onRunSelected($event)"
     (refreshRequested)="loadRuns()"
+    (demoRequested)="onDemoRequested()"
   />
   <app-map-panel />
 </main>
