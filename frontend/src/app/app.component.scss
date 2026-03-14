@@ -1,0 +1,27 @@
+@use 'variables' as *;
+
+.viewport-guard {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 2rem;
+  background: $bg-base;
+  color: $text-primary;
+  text-align: center;
+}
+
+.viewport-guard__content {
+  max-width: 28rem;
+}
+
+.viewport-guard__content h1 {
+  margin: 0 0 0.75rem;
+  font-size: clamp(2rem, 5vw, 3rem);
+  line-height: 1;
+}
+
+.viewport-guard__content p {
+  margin: 0;
+  font-size: clamp(1rem, 2vw, 1.25rem);
+  color: rgba(245, 247, 250, 0.8);
+}
