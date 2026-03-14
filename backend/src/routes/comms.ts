@@ -1,4 +1,5 @@
-import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
+import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
+import { CommsResponseSchema } from "@unihack/types";
 
 const comms = new OpenAPIHono();
 
@@ -11,9 +12,7 @@ comms.openapi(
       200: {
         content: {
           "application/json": {
-            schema: z.object({
-              comms: z.array(z.string()),
-            }),
+            schema: CommsResponseSchema,
           },
         },
         description: "Upload data from hardware",
