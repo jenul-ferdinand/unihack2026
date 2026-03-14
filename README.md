@@ -82,3 +82,12 @@ For a Mark 2 version of Antrum, we want to develop a fully waterproof casing so 
 - PlatformIO. (n.d.). PlatformIO documentation. Retrieved March 14, 2026, from https://docs.platformio.org/en/latest/
 
 - Dassault Systèmes. (n.d.). SOLIDWORKS Web Help. Retrieved March 14, 2026, from https://help.solidworks.com/
+
+### Third-party software used
+
+- SolidWorks
+- Claude Code
+- ChatGPT Codex
+- Adobe Photoshop
+- Capcut
+- VS Code
