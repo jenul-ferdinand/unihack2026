@@ -47,4 +47,8 @@ export class CommsService {
   getRunDetail(id: string): Observable<RunDetailResponse> {
     return this.http.get<RunDetailResponse>(`${this.base}/runs/${id}`);
   }
+
+  startDemo(): Observable<{ run_id: string }> {
+    return this.http.post<{ run_id: string }>(`${this.base}/demo`, {});
+  }
 }
