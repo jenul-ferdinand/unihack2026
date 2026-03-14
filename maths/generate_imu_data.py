@@ -1,6 +1,8 @@
+import argparse
 import json
 import math
 import random
+import sys
 from dataclasses import dataclass
 
 # ============================================================
@@ -298,5 +300,68 @@ def run_sim():
     print(f"Packet period: {DT * 1000:.1f} ms")
 
 
+def post_to_api(base_url: str):
+    """Generate packets and POST them to the backend API."""
+    import urllib.request
+    import urllib.error
+
+    def api_post(path: str, payload: dict) -> dict:
+        url = f"{base_url}{path}"
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+    # Start a run
+    result = api_post("/api/comms/start", {"start": 1})
+    run_id = result.get("run_id", "unknown")
+    print(f"Started run: {run_id}")
+
+    dev1 = SimDevice(device_id=1, start_pos=Vec3(0.0, 0.0, 0.0), yaw_deg=0.0)
+    dev2 = SimDevice(device_id=2, start_pos=Vec3(START_SEPARATION_M, 0.0, 0.0), yaw_deg=8.0)
+    dev1.initial_yaw_deg = dev1.yaw_deg
+    dev2.initial_yaw_deg = dev2.yaw_deg
+
+    packets_sent = 0
+    total_time = 0.0
+
+    for seg_idx in range(NUM_SEGMENTS):
+        dev1.choose_new_segment()
+        dev2.choose_new_segment(base_yaw_deg=dev1.yaw_deg + random.gauss(0.0, 15.0))
+        steps_per_segment = int(SEGMENT_LENGTH_M / (SPEED_MPS * DT))
+
+        for _ in range(steps_per_segment):
+            dev1.step(DT)
+            dev2.step(DT)
+
+            pkt1 = build_packet(dev1, dev2, total_time)
+            pkt2 = build_packet(dev2, dev1, total_time)
+
+            # Strip fields not in CommsRequestSchema
+            for pkt in (pkt1, pkt2):
+                pkt.pop("t_us", None)
+                pkt.pop("self_id", None)
+
+            api_post("/api/comms/", pkt1)
+            api_post("/api/comms/", pkt2)
+
+            packets_sent += 2
+            total_time += DT
+
+        print(f"  Segment {seg_idx + 1}/{NUM_SEGMENTS} done ({packets_sent} packets sent)")
+
+    # Stop the run
+    api_post("/api/comms/stop", {"stop": 1})
+    print(f"Run {run_id} stopped. {packets_sent} packets sent in {total_time:.2f}s simulated time.")
+
+
 if __name__ == "__main__":
-    run_sim()
+    parser = argparse.ArgumentParser(description="Generate IMU cave navigation data")
+    parser.add_argument("--post", action="store_true", help="POST packets to backend API instead of writing to file")
+    parser.add_argument("--url", default="http://localhost:3000", help="Backend base URL (default: http://localhost:3000)")
+    args = parser.parse_args()
+
+    if args.post:
+        post_to_api(args.url)
+    else:
+        run_sim()
