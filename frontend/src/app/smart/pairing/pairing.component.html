@@ -3,20 +3,20 @@
 
   <div class="devices">
     <div class="device">
-      <div class="circle" [class.connected]="deviceConnected"></div>
-      <span class="label">Device</span>
-      <span class="status">{{ deviceConnected ? 'Connected' : 'Disconnected' }}</span>
-      @if (deviceIp) {
-        <span class="ip">{{ deviceIp }}</span>
+      <div class="circle" [class.connected]="device1Connected"></div>
+      <span class="label">{{ paired ? 'Device' : 'Device 1' }}</span>
+      <span class="status">{{ device1Connected ? 'Connected' : 'Disconnected' }}</span>
+      @if (device1Ip) {
+        <span class="ip">{{ device1Ip }}</span>
       }
     </div>
 
     <div class="device">
-      <div class="circle" [class.connected]="peerConnected"></div>
-      <span class="label">Peer</span>
-      <span class="status">{{ peerConnected ? 'Connected' : 'Disconnected' }}</span>
-      @if (peerIp) {
-        <span class="ip">{{ peerIp }}</span>
+      <div class="circle" [class.connected]="device2Connected"></div>
+      <span class="label">{{ paired ? 'Peer' : 'Device 2' }}</span>
+      <span class="status">{{ device2Connected ? 'Connected' : 'Disconnected' }}</span>
+      @if (device2Ip) {
+        <span class="ip">{{ device2Ip }}</span>
       }
     </div>
   </div>
