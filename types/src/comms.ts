@@ -32,8 +32,18 @@ export const CommsRequestSchema = z.object({
 });
 
 export const CommsResponseSchema = z.object({
-  comms: z.array(z.string()),
+  success: z.boolean(),
+});
+
+export const CommsStartSchema = z.object({
+  start: z.literal(1),
+});
+
+export const CommsStopSchema = z.object({
+  stop: z.literal(1),
 });
 
 export type CommsRequest = z.infer<typeof CommsRequestSchema>;
 export type CommsResponse = z.infer<typeof CommsResponseSchema>;
+export type CommsStart = z.infer<typeof CommsStartSchema>;
+export type CommsStop = z.infer<typeof CommsStopSchema>;
