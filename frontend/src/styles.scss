@@ -4,6 +4,13 @@
   box-sizing: border-box;
 }
 
+:root {
+  --bg-base: #{$bg-base};
+  --accent-device: #{$accent-device};
+  --accent-peer: #{$accent-peer};
+  --globe-wire: #{$globe-wire};
+}
+
 html, body {
   margin: 0;
   height: 100%;
