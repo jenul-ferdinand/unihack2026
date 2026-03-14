@@ -45,6 +45,7 @@ void imuMagFinish(ImuMagCal &cal)
 void imuMagApply(const ImuMagCal &cal, float rawMx, float rawMy, float rawMz,
                  float &mx, float &my, float &mz)
 {
+    return;
     mx = (rawMx - cal.offset[0]) * cal.scale[0];
     my = (rawMy - cal.offset[1]) * cal.scale[1];
     mz = (rawMz - cal.offset[2]) * cal.scale[2];

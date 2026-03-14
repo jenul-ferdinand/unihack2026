@@ -1,5 +1,11 @@
 #pragma once
 
+#ifndef CLAMP_RADIUS_M
+#define CLAMP_RADIUS_M 2.0f
+#endif
+
+#define IMU_DEBUG 1
+
 struct ImuAccelCal
 {
     float gyroBiasDps[3];
@@ -13,7 +19,12 @@ struct ImuMotionState
     float velWorld[3];
     float posWorld[3];
     bool motionBurst;
+
+    float travelMeters;   // total path length since reset
+    float pendingMeters;  // unsent travelled distance
 };
+
+bool imuAccelConsumeMeter(ImuMotionState &motion);
 
 void imuAccelInit(ImuAccelCal &cal, ImuMotionState &motion);
 void imuAccelCalibrateStill(ImuAccelCal &cal,
