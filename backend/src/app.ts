@@ -6,9 +6,7 @@ import runs from './routes/runs';
 
 const app = new OpenAPIHono();
 
-if (process.env.NODE_ENV !== 'production') {
-  app.use('*', cors());
-}
+app.use('*', cors());
 
 app.route('/api/comms', comms);
 app.route('/api/runs', runs);
