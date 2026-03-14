@@ -11,8 +11,8 @@
 #define CSN_PIN 5
 
 // CHANGE THESE PER DEVICE
-#define SELF_ID        1
-#define IS_TIME_MASTER 1
+#define SELF_ID        2
+#define IS_TIME_MASTER 0
 
 #if IS_TIME_MASTER
   #define IS_POLLER 1
@@ -293,7 +293,7 @@ static void updateStationaryHold()
             (millis() - gMotion.stillSinceMs >= STILL_RESET_MS))
         {
             imu_zeroVelocity();
-            imu_resetPosition();
+            //imu_resetPosition();
 
             gMotion.originSet = false;
 

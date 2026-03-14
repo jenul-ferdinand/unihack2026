@@ -13,8 +13,12 @@ struct ImuMotionState
     float velWorld[3];
     float posWorld[3];
     bool motionBurst;
+
+    float travelMeters;   // total path length since reset
+    float pendingMeters;  // unsent travelled distance
 };
 
+bool imuAccelConsumeMeter(ImuMotionState &motion);
 void imuAccelInit(ImuAccelCal &cal, ImuMotionState &motion);
 void imuAccelCalibrateStill(ImuAccelCal &cal,
                             float sumGx, float sumGy, float sumGz,
