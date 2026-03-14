@@ -17,6 +17,10 @@ export class RunRepository {
     await Run.updateOne({ _id: runId }, { $push: { raw_points: point } });
   }
 
+  async pushRawPoints(runId: string, points: any[]): Promise<void> {
+    await Run.updateOne({ _id: runId }, { $push: { raw_points: { $each: points } } });
+  }
+
   async completeRun(runId: string, path: IPathPoint[]): Promise<void> {
     await Run.updateOne(
       { _id: runId },
