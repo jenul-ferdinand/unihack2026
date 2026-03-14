@@ -1,21 +1,21 @@
-import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
-import { CommsResponseSchema } from "@unihack/types";
+import { OpenAPIHono, createRoute } from '@hono/zod-openapi';
+import { CommsResponseSchema } from '@unihack/types';
 
 const comms = new OpenAPIHono();
 
 comms.openapi(
   createRoute({
-    method: "get",
-    path: "/",
-    tags: ["Comms"],
+    method: 'get',
+    path: '/',
+    tags: ['Comms'],
     responses: {
       200: {
         content: {
-          "application/json": {
+          'application/json': {
             schema: CommsResponseSchema,
           },
         },
-        description: "Upload data from hardware",
+        description: 'Upload data from hardware',
       },
     },
   }),
@@ -24,5 +24,16 @@ comms.openapi(
     return c.json({ comms: [] }, 200);
   },
 );
+
+// comms.openapi(
+//   createRoute({
+//     method: 'post',
+//     path: '/',
+//     tags: ['Comms'],
+//   }),
+//   (c) => {
+
+//   }
+// )
 
 export default comms;
