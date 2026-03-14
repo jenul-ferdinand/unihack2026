@@ -4,7 +4,7 @@ import { InfoPanelComponent } from './info-panel/info-panel.component';
 import { InfoDetailPanelComponent } from '../../dumb/info-detail-panel/info-detail-panel.component';
 import { MapPanelComponent } from './map-panel/map-panel.component';
 import { PairingComponent } from '../pairing/pairing.component';
-import { CommsService, RunSummary } from '../../services/comms.service';
+import { RunsService, RunSummary } from '../../services/runs.service';
 
 @Component({
   selector: 'app-dashboard',
@@ -23,7 +23,7 @@ export class DashboardComponent implements OnInit {
   loading = false;
   demoLoading = false;
 
-  constructor(private commsService: CommsService) {}
+  constructor(private runsService: RunsService) {}
 
   ngOnInit(): void {
     this.loadRuns();
@@ -34,7 +34,7 @@ export class DashboardComponent implements OnInit {
   }
 
   loadRuns(): void {
-    this.commsService.getRuns().subscribe({
+    this.runsService.getRuns().subscribe({
       next: (res) => (this.runs = res.runs),
       error: (err) => console.error('Failed to load runs:', err),
     });
@@ -46,7 +46,7 @@ export class DashboardComponent implements OnInit {
     this.loading = true;
     this.mapPanel.clearPaths();
 
-    this.commsService.getRunDetail(runId).subscribe({
+    this.runsService.getRunDetail(runId).subscribe({
       next: (detail) => {
         for (const point of detail.path) {
           this.mapPanel.addPoints(point.device_pos, point.peer_pos);
@@ -66,7 +66,7 @@ export class DashboardComponent implements OnInit {
     this.activeTab = 'runs';
     this.mapPanel?.clearPaths();
 
-    this.commsService.deleteRun(runId).subscribe({
+    this.runsService.deleteRun(runId).subscribe({
       next: () => this.loadRuns(),
       error: (err) => console.error('Failed to delete run:', err),
     });
@@ -74,7 +74,7 @@ export class DashboardComponent implements OnInit {
 
   onDemoRequested(): void {
     this.demoLoading = true;
-    this.commsService.startDemo().subscribe({
+    this.runsService.startDemo().subscribe({
       next: (res) => {
         this.demoLoading = false;
         this.loadRuns();

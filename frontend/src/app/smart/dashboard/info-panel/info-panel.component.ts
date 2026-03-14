@@ -1,6 +1,6 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RunSummary } from '../../../services/comms.service';
+import { RunSummary } from '../../../services/runs.service';
 
 @Component({
   selector: 'app-info-panel',
