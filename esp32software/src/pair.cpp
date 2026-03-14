@@ -1,5 +1,6 @@
 #include "pair.h"
 #include <string.h>
+#include "debug_config.h"
 
 static const byte DISCOVERY_ADDR[6] = "PAIR0";
 
@@ -73,12 +74,14 @@ static bool readPacket(RF24 &radio, PairMsg &msg)
 
   radio.read(&msg, sizeof(msg));
 
+#if DEBUG_SERIAL_ENABLE && DEBUG_PAIRING
   Serial.print("RX type=");
   Serial.print(msg.type);
   Serial.print(" from=");
   Serial.print(msg.fromId);
   Serial.print(" to=");
   Serial.println(msg.toId);
+#endif
 
   return true;
 }
@@ -89,6 +92,7 @@ static bool sendPacket(RF24 &radio, const PairMsg &msg, PairMsg *ackOut = nullpt
 
   bool ok = radio.write(&msg, sizeof(msg));
 
+#if DEBUG_SERIAL_ENABLE && DEBUG_PAIRING
   Serial.print("TX type=");
   Serial.print(msg.type);
   Serial.print(" from=");
@@ -96,6 +100,7 @@ static bool sendPacket(RF24 &radio, const PairMsg &msg, PairMsg *ackOut = nullpt
   Serial.print(" to=");
   Serial.print(msg.toId);
   Serial.println(ok ? " (ok)" : " (fail)");
+#endif
 
   bool gotAckPayload = false;
   if (ok && radio.isAckPayloadAvailable() && ackOut != nullptr)
@@ -105,12 +110,14 @@ static bool sendPacket(RF24 &radio, const PairMsg &msg, PairMsg *ackOut = nullpt
     {
       radio.read(ackOut, sizeof(PairMsg));
 
+#if DEBUG_SERIAL_ENABLE && DEBUG_PAIRING
       Serial.print("ACK type=");
       Serial.print(ackOut->type);
       Serial.print(" from=");
       Serial.print(ackOut->fromId);
       Serial.print(" to=");
       Serial.println(ackOut->toId);
+#endif
 
       gotAckPayload = true;
     }
@@ -141,8 +148,10 @@ void pairingBegin(RF24 &radio, PairContext &ctx, uint8_t selfId)
 
   startDiscoveryListening(radio);
 
+#if DEBUG_SERIAL_ENABLE && DEBUG_PAIRING
   Serial.print("Pairing begin, selfId=");
   Serial.println(selfId);
+#endif
 }
 
 static void responderHandle(RF24 &radio, PairContext &ctx, const PairMsg &rx)
@@ -162,7 +171,9 @@ static void responderHandle(RF24 &radio, PairContext &ctx, const PairMsg &rx)
     radio.writeAckPayload(1, &ack, sizeof(ack));
     s.lastRxMs = millis();
 
+#if DEBUG_SERIAL_ENABLE && DEBUG_PAIRING
     Serial.println("Queued OFFER");
+#endif
 
     // IMPORTANT:
     // After offering, switch to our dedicated receive address
@@ -171,8 +182,10 @@ static void responderHandle(RF24 &radio, PairContext &ctx, const PairMsg &rx)
     radio.openReadingPipe(1, nodeAddr(ctx.selfId));
     radio.startListening();
 
+#if DEBUG_SERIAL_ENABLE && DEBUG_PAIRING
     Serial.print("Responder listening on dedicated addr for selfId=");
     Serial.println(ctx.selfId);
+#endif
   }
   else if (rx.type == MSG_CONFIRM && rx.toId == ctx.selfId)
   {
@@ -190,11 +203,15 @@ static void responderHandle(RF24 &radio, PairContext &ctx, const PairMsg &rx)
     {
       ctx.paired = true;
       s.state = ST_PAIRED;
+#if DEBUG_SERIAL_ENABLE && DEBUG_PAIRING
       Serial.println("Pairing complete (responder)");
+#endif
     }
     else
     {
+#if DEBUG_SERIAL_ENABLE && DEBUG_PAIRING
       Serial.println("Re-queued CONFIRMED");
+#endif
     }
   }
 }
@@ -232,8 +249,10 @@ void pairingUpdate(RF24 &radio, PairContext &ctx)
       {
         ctx.peerId = ack.fromId;
         s.state = ST_WAIT_CONFIRMED;
+#if DEBUG_SERIAL_ENABLE && DEBUG_PAIRING
         Serial.print("Found peer ");
         Serial.println(ctx.peerId);
+#endif
       }
     }
   }
@@ -254,7 +273,9 @@ void pairingUpdate(RF24 &radio, PairContext &ctx)
       {
         ctx.paired = true;
         s.state = ST_PAIRED;
+#if DEBUG_SERIAL_ENABLE && DEBUG_PAIRING
         Serial.println("Pairing complete (initiator)");
+#endif
       }
     }
 
@@ -262,7 +283,9 @@ void pairingUpdate(RF24 &radio, PairContext &ctx)
     {
       s.state = ST_SEARCH;
       ctx.peerId = 0;
+#if DEBUG_SERIAL_ENABLE && DEBUG_PAIRING
       Serial.println("Timeout, back to search");
+#endif
     }
   }
 }

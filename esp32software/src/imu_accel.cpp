@@ -78,6 +78,7 @@ void imuAccelProcess(ImuMotionState &motion,
     float pitchDeg = 0.0f;
     float yawDeg = 0.0f;
     imuMathQuatToEulerDeg(quat, rollDeg, pitchDeg, yawDeg);
+    rollDeg *= 4; // Cater for imu resistance
 
     // Clamp gyro rates below threshold as noise
     const float gyroRaw[3] = {rawGx, rawGy, rawGz};
@@ -98,6 +99,18 @@ void imuAccelProcess(ImuMotionState &motion,
 
     const float gyroNormClamped = imuMathNorm3(
         gyroClamped[0], gyroClamped[1], gyroClamped[2]);
+
+    float reportRoll = rollDeg;
+    float reportPitch = pitchDeg;
+    float reportYaw = yawDeg;
+/*
+    if (gMotion.holdLatched)
+    {
+        reportRoll = gMotion.holdRollRef;
+        reportPitch = gMotion.holdPitchRef;
+        reportYaw = gMotion.holdYawRef;
+    }
+    */
 
 #if IMU_DEBUG
     Serial.println();
@@ -168,6 +181,18 @@ void imuAccelProcess(ImuMotionState &motion,
 
     Serial.print("yaw deg: ");
     Serial.println(yawDeg, 3);
+/*
+    Serial.println("Final clamp:");
+    Serial.print("roll deg: ");
+    Serial.println(reportRoll, 3);
+
+    Serial.print("pitch deg: ");
+    Serial.println(reportPitch, 3);
+
+    Serial.print("yaw deg: ");
+    Serial.println(reportYaw, 3);
+
+    */
 #endif
 
     if (!motion.motionBurst)

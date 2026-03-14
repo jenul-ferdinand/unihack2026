@@ -9,6 +9,7 @@
 #include <Adafruit_ICM20948.h>
 #include <MadgwickAHRS.h>
 
+#include "debug_config.h"
 #include "imu_math.h"
 #include "imu_accel.h"
 #include "imu_mag.h"
@@ -18,11 +19,18 @@ static Madgwick filter;
 
 static bool imu_ok = false;
 static bool g_stationary_hold = false;
+static bool g_rotation_hold = false;
 static unsigned long last_update_us = 0;
 static unsigned long last_debug_ms = 0;
+static int g_rotation_still_count = 0;
+static int g_rotation_move_count = 0;
 
 static constexpr float G_MSS = 9.80665f;
 static constexpr float RAD_TO_DEG_F = 57.2957795f;
+static constexpr float ROTATION_HOLD_ENTER_DPS = 1.5f;
+static constexpr float ROTATION_HOLD_EXIT_DPS = 2.5f;
+static constexpr int ROTATION_HOLD_SAMPLES_TO_LATCH = 4;
+static constexpr int ROTATION_HOLD_SAMPLES_TO_RELEASE = 2;
 
 // Raw readings
 static float raw_ax_mss = 0.0f;
@@ -80,7 +88,9 @@ static void calibrateAccelGyro10s()
     float sumAx = 0, sumAy = 0, sumAz = 0;
     int samples = 0;
 
+#if DEBUG_SERIAL_ENABLE && DEBUG_BOOT_LOGS
     Serial.println("Accel/Gyro calibration 10s: keep still");
+#endif
 
     while (millis() - start < 10000)
     {
@@ -110,7 +120,9 @@ static void calibrateMag10s()
     const unsigned long start = millis();
     imuMagInit(gMagCal);
 
+#if DEBUG_SERIAL_ENABLE && DEBUG_BOOT_LOGS
     Serial.println("Mag calibration 10s: rotate slowly through many angles");
+#endif
 
     while (millis() - start < 10000)
     {
@@ -139,7 +151,9 @@ bool imu_begin()
 
     if (!icm.begin_I2C(0x68, &Wire))
     {
+#if DEBUG_SERIAL_ENABLE && DEBUG_BOOT_LOGS
         Serial.println("ICM-20948 init failed via Adafruit begin_I2C(0x68)");
+#endif
         imu_ok = false;
         return false;
     }
@@ -159,7 +173,9 @@ bool imu_begin()
     last_update_us = micros();
     imu_ok = true;
 
+#if DEBUG_SERIAL_ENABLE && DEBUG_BOOT_LOGS
     Serial.println("ICM-20948 ready");
+#endif
     return true;
 }
 
@@ -178,17 +194,40 @@ void imu_update()
     const float ax_g = raw_ax_mss / G_MSS;
     const float ay_g = raw_ay_mss / G_MSS;
     const float az_g = raw_az_mss / G_MSS;
+    const float gyro_mag_dps = sqrtf(
+        raw_gx_dps * raw_gx_dps +
+        raw_gy_dps * raw_gy_dps +
+        raw_gz_dps * raw_gz_dps);
 
-    filter.update(raw_gx_dps, raw_gy_dps, raw_gz_dps,
-                  ax_g, ay_g, az_g,
-                  raw_mx_uT, raw_my_uT, raw_mz_uT);
+    if (gyro_mag_dps < ROTATION_HOLD_ENTER_DPS)
+    {
+        g_rotation_still_count++;
+        g_rotation_move_count = 0;
+    }
+    else if (gyro_mag_dps > ROTATION_HOLD_EXIT_DPS)
+    {
+        g_rotation_move_count++;
+        g_rotation_still_count = 0;
+    }
 
-    quat[0] = filter.q0;
-    quat[1] = filter.q1;
-    quat[2] = filter.q2;
-    quat[3] = filter.q3;
+    if (g_rotation_still_count >= ROTATION_HOLD_SAMPLES_TO_LATCH)
+        g_rotation_hold = true;
+    else if (g_rotation_move_count >= ROTATION_HOLD_SAMPLES_TO_RELEASE)
+        g_rotation_hold = false;
 
-    imuMathQuatToEulerDeg(quat, roll_deg, pitch_deg, yaw_deg);
+    if (!(g_stationary_hold || g_rotation_hold))
+    {
+        filter.update(raw_gx_dps, raw_gy_dps, raw_gz_dps,
+                      ax_g, ay_g, az_g,
+                      raw_mx_uT, raw_my_uT, raw_mz_uT);
+
+        quat[0] = filter.q0;
+        quat[1] = filter.q1;
+        quat[2] = filter.q2;
+        quat[3] = filter.q3;
+
+        imuMathQuatToEulerDeg(quat, roll_deg, pitch_deg, yaw_deg);
+    }
 
     imuAccelProcess(gMotion,
                     quat,
@@ -267,7 +306,7 @@ void imu_setStationary(bool still)
     g_stationary_hold = still;
     if (still)
         imuAccelZeroVelocity(gMotion);
-        imu_zeroGyroRate();
+        //imu_zeroGyroRate();
 }
 
 void imu_zeroVelocity()
@@ -294,6 +333,9 @@ void imu_resetPosition()
 
 void imu_printDebug()
 {
+#if !(DEBUG_SERIAL_ENABLE && DEBUG_IMU_VERBOSE)
+    return;
+#else
     const unsigned long now = millis();
     if (now - last_debug_ms < 100)
         return;
@@ -348,4 +390,5 @@ void imu_printDebug()
     Serial.print(gMotion.velWorld[0], 4); Serial.print(", ");
     Serial.print(gMotion.velWorld[1], 4); Serial.print(", ");
     Serial.println(gMotion.velWorld[2], 4);
+#endif
 }
