@@ -11,11 +11,13 @@ beforeAll(async () => {
   mongoServer = await MongoMemoryServer.create();
   await mongoose.connect(mongoServer.getUri());
 
-  // Import comms router after mongoose is connected so the RunService
+  // Import routers after mongoose is connected so the RunService
   // and repository use the in-memory DB.
   const { default: comms } = await import('../../routes/comms');
+  const { default: runs } = await import('../../routes/runs');
   app = new OpenAPIHono();
   app.route('/api/comms', comms);
+  app.route('/api/runs', runs);
 });
 
 afterAll(async () => {
@@ -64,8 +66,8 @@ describe('Comms E2E', () => {
       expect(body.success).toBe(true);
     });
 
-    it('GET /api/comms/runs — lists the completed run', async () => {
-      const res = await app.request('/api/comms/runs');
+    it('GET /api/runs — lists the completed run', async () => {
+      const res = await app.request('/api/runs');
 
       expect(res.status).toBe(200);
       const body = await res.json() as any;
@@ -81,8 +83,8 @@ describe('Comms E2E', () => {
       expect(run).toHaveProperty('stopped_at');
     });
 
-    it('GET /api/comms/runs/:id — returns corrected path', async () => {
-      const res = await app.request(`/api/comms/runs/${runId}`);
+    it('GET /api/runs/:id — returns corrected path', async () => {
+      const res = await app.request(`/api/runs/${runId}`);
 
       expect(res.status).toBe(200);
       const body = await res.json() as any;
@@ -102,9 +104,9 @@ describe('Comms E2E', () => {
       }
     });
 
-    it('GET /api/comms/runs/:id — returns 404 for unknown id', async () => {
+    it('GET /api/runs/:id — returns 404 for unknown id', async () => {
       const fakeId = new mongoose.Types.ObjectId().toString();
-      const res = await app.request(`/api/comms/runs/${fakeId}`);
+      const res = await app.request(`/api/runs/${fakeId}`);
 
       expect(res.status).toBe(404);
       const body = await res.json() as any;
@@ -122,15 +124,15 @@ describe('Comms E2E', () => {
   });
 
   describe('demo run', () => {
-    it('POST /api/comms/demo — creates a demo run with corrected path', async () => {
-      const res = await app.request('/api/comms/demo', json({}));
+    it('POST /api/runs/demo — creates a demo run with corrected path', async () => {
+      const res = await app.request('/api/runs/demo', json({}));
 
       expect(res.status).toBe(200);
       const body = await res.json() as any;
       expect(typeof body.run_id).toBe('string');
 
       // Verify the run exists and has path data
-      const detailRes = await app.request(`/api/comms/runs/${body.run_id}`);
+      const detailRes = await app.request(`/api/runs/${body.run_id}`);
       expect(detailRes.status).toBe(200);
       const detail = await detailRes.json() as any;
 

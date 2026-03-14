@@ -80,3 +80,5 @@ export class RunService {
     };
   }
 }
+
+export const runService = new RunService();
