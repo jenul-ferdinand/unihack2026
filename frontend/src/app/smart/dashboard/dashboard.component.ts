@@ -1,19 +1,22 @@
 import { Component, OnInit, ViewChild } from '@angular/core';
-import { NavbarComponent } from '../../dumb/navbar/navbar.component';
+import { NavbarComponent, NavTab } from '../../dumb/navbar/navbar.component';
 import { InfoPanelComponent } from './info-panel/info-panel.component';
+import { InfoDetailPanelComponent } from '../../dumb/info-detail-panel/info-detail-panel.component';
 import { MapPanelComponent } from './map-panel/map-panel.component';
+import { PairingComponent } from '../pairing/pairing.component';
 import { CommsService, RunSummary } from '../../services/comms.service';
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [NavbarComponent, InfoPanelComponent, MapPanelComponent],
+  imports: [NavbarComponent, InfoPanelComponent, InfoDetailPanelComponent, MapPanelComponent, PairingComponent],
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.scss',
 })
 export class DashboardComponent implements OnInit {
   @ViewChild(MapPanelComponent) mapPanel!: MapPanelComponent;
 
+  activeTab: NavTab = 'pairing';
   runs: RunSummary[] = [];
   selectedRunId: string | null = null;
   loading = false;
@@ -23,6 +26,10 @@ export class DashboardComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadRuns();
+  }
+
+  onTabChanged(tab: NavTab): void {
+    this.activeTab = tab;
   }
 
   loadRuns(): void {

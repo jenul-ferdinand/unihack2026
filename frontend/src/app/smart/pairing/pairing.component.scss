@@ -1,0 +1,65 @@
+@use 'variables' as *;
+
+$green: #34d399;
+
+:host {
+  display: flex;
+  flex: 1;
+}
+
+.pairing {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3rem;
+  background: $bg-base;
+}
+
+.title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: $text-muted;
+}
+
+.devices {
+  display: flex;
+  gap: 6rem;
+}
+
+.device {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.circle {
+  width: 10rem;
+  height: 10rem;
+  border-radius: 50%;
+  background: $bg-elevated;
+  border: 3px solid $border;
+  transition: background 0.3s, border-color 0.3s, box-shadow 0.3s;
+
+  &.connected {
+    background: rgba($green, 0.15);
+    border-color: $green;
+    box-shadow: 0 0 30px rgba($green, 0.3);
+  }
+}
+
+.label {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: $text-primary;
+}
+
+.status {
+  font-size: 0.875rem;
+  color: $text-muted;
+}

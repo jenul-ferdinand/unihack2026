@@ -1,12 +1,28 @@
-<app-navbar />
-<main class="content">
-  <app-info-panel
-    [runs]="runs"
-    [selectedRunId]="selectedRunId"
-    [demoLoading]="demoLoading"
-    (runSelected)="onRunSelected($event)"
-    (refreshRequested)="loadRuns()"
-    (demoRequested)="onDemoRequested()"
-  />
-  <app-map-panel />
-</main>
+<app-navbar [activeTab]="activeTab" (tabChanged)="onTabChanged($event)" />
+
+@switch (activeTab) {
+  @case ('runs') {
+    <main class="content">
+      <app-info-panel
+        [runs]="runs"
+        [selectedRunId]="selectedRunId"
+        [demoLoading]="demoLoading"
+        (runSelected)="onRunSelected($event)"
+        (refreshRequested)="loadRuns()"
+        (demoRequested)="onDemoRequested()"
+      />
+      <app-map-panel />
+    </main>
+  }
+  @case ('info') {
+    <main class="content">
+      <app-info-detail-panel />
+      <app-map-panel />
+    </main>
+  }
+  @case ('pairing') {
+    <main class="content">
+      <app-pairing />
+    </main>
+  }
+}

@@ -1,3 +1,26 @@
 <nav class="navbar">
   <span class="logo">Antrum DASH</span>
+  <div class="nav-tabs">
+    <button
+      class="nav-tab"
+      [class.active]="activeTab === 'pairing'"
+      (click)="selectTab('pairing')"
+    >
+      Pairing
+    </button>
+    <button
+      class="nav-tab"
+      [class.active]="activeTab === 'runs'"
+      (click)="selectTab('runs')"
+    >
+      Runs
+    </button>
+    <button
+      class="nav-tab"
+      [class.active]="activeTab === 'info'"
+      (click)="selectTab('info')"
+    >
+      Info
+    </button>
+  </div>
 </nav>

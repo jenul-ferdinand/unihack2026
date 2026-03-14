@@ -1,0 +1,17 @@
+<section class="pairing">
+  <h2 class="title">Pairing</h2>
+
+  <div class="devices">
+    <div class="device">
+      <div class="circle" [class.connected]="deviceConnected"></div>
+      <span class="label">Device</span>
+      <span class="status">{{ deviceConnected ? 'Connected' : 'Disconnected' }}</span>
+    </div>
+
+    <div class="device">
+      <div class="circle" [class.connected]="peerConnected"></div>
+      <span class="label">Peer</span>
+      <span class="status">{{ peerConnected ? 'Connected' : 'Disconnected' }}</span>
+    </div>
+  </div>
+</section>
