@@ -53,8 +53,8 @@ export class MapPanelComponent implements AfterViewInit, OnDestroy {
   /** Call this to append new positions from incoming comms data */
   addPoints(device: { x: number; y: number; z: number }, peer: { x: number; y: number; z: number }): void {
     const r = this.GLOBE_RADIUS;
-    this.devicePath.push(new THREE.Vector3(device.x, device.y + r, device.z));
-    this.peerPath.push(new THREE.Vector3(peer.x, peer.y + r, peer.z));
+    this.devicePath.push(new THREE.Vector3(device.x, device.z + r, device.y));
+    this.peerPath.push(new THREE.Vector3(peer.x, peer.z + r, peer.y));
     this.updateLine(this.deviceLine, this.devicePath);
     this.updateLine(this.peerLine, this.peerPath);
     this.updateDots(this.deviceStartDot, this.deviceEndDot, this.devicePath);

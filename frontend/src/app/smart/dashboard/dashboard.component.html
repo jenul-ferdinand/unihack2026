@@ -4,9 +4,13 @@
   (tabChanged)="onTabChanged($event)"
 />
 
-@switch (activeTab) {
-  @case ('runs') {
-    <main class="content">
+@if (activeTab === 'pairing') {
+  <main class="content">
+    <app-pairing />
+  </main>
+} @else {
+  <main class="content">
+    @if (activeTab === 'runs') {
       <app-info-panel
         [runs]="runs"
         [selectedRunId]="selectedRunId"
@@ -15,21 +19,12 @@
         (refreshRequested)="loadRuns()"
         (demoRequested)="onDemoRequested()"
       />
-      <app-map-panel />
-    </main>
-  }
-  @case ('info') {
-    <main class="content">
+    } @else if (activeTab === 'info') {
       <app-info-detail-panel
         [run]="selectedRun"
         (deleteRequested)="onDeleteRun($event)"
       />
-      <app-map-panel />
-    </main>
-  }
-  @case ('pairing') {
-    <main class="content">
-      <app-pairing />
-    </main>
-  }
+    }
+    <app-map-panel />
+  </main>
 }
