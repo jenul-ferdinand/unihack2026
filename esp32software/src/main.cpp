@@ -7,14 +7,15 @@
 #include "link.h"
 #include "time_sync.h"
 #include "imu_accel.h"
+#include "dead_reckoning.h"
 #include "debug_config.h"
 
 #define CE_PIN 4
 #define CSN_PIN 5
 
 // CHANGE THESE PER DEVICE
-#define SELF_ID 2
-#define IS_TIME_MASTER 0
+#define SELF_ID 1
+#define IS_TIME_MASTER 1
 
 #if IS_TIME_MASTER
 #define IS_POLLER 1
@@ -104,16 +105,8 @@ struct MotionState
 
 static MotionState gMotion;
 
-// ---------- Peer relative/debug state ----------
-struct RelativeState
-{
-    float dx = 0, dy = 0, dz = 0;
-    float distance = 0;
-    float bearingWorldDeg = 0;
-    float bearingLocalDeg = 0;
-};
-
-static RelativeState gRel;
+static DeadReckoningState gDeadReckoning;
+static DeadReckoningPeerView gDeadPeerView;
 
 // ---------- Timing ----------
 static unsigned long gLastDebugMs = 0;
@@ -155,7 +148,7 @@ static uint8_t buildFlags()
     // bit1 = ZUPT active
     // bit2 = stationary
     // bit3 = heading / time reliable
-    // bit4 = reserved
+    // bit4 = moved, then stationary lock is trusted
     // bit5 = reserved
     // bit6 = initial yaw valid / shared frame info valid
     // bit7 = shared frame locked locally
@@ -178,6 +171,8 @@ static uint8_t buildFlags()
         flags |= (1 << 6);
     if (gSharedFrameLocked)
         flags |= (1 << 7);
+    if (gDeadReckoning.lockedAfterMove)
+        flags |= (1 << 4);
 
     return flags;
 }
@@ -271,7 +266,7 @@ static void maybeLockInitialYaw()
     if (millis() - gMotion.stillSinceMs < STILL_RESET_MS)
         return;
 
-    gInitialYawDeg = gMotion.rawYaw;
+    gInitialYawDeg = gDeadReckoning.quantizedMoveHeadingDeg;
     gInitialYawLocked = true;
 
 #if IS_TIME_MASTER
@@ -583,47 +578,56 @@ static void fillLocalPacket(StatePacket &pkt)
 {
     pkt.deviceId = SELF_ID;
     pkt.flags = buildFlags();
-    pkt.seq = gSeq++;
+    pkt.seq = linkPackSeq(gSeq++, gDeadPeerView.directionCode, gDeadPeerView.directionConfidence);
     pkt.timeUs = sharedNowUs();
 
-    pkt.yawDeg = gMotion.clampYaw; // TODO CLAMP YAW
+    pkt.yawDeg = gDeadReckoning.snappedCompareHeadingDeg;
     pkt.initYawDeg = gInitialYawDeg;
 
-    float tx = gMotion.clampPosX;
-    float ty = gMotion.clampPosY;
-    float tz = gMotion.clampPosZ;
-
-    if (gSharedFrameLocked)
-        rotate2D(gMotion.clampPosX, gMotion.clampPosY, gSharedYawOffsetDeg, tx, ty);
+    float tx = 0.0f;
+    float ty = 0.0f;
+    float tz = 0.0f;
+    deadReckoningGetSharedPosition(gDeadReckoning, gSharedFrameLocked, gSharedYawOffsetDeg, tx, ty, tz);
 
     pkt.posX = tx;
     pkt.posY = ty;
     pkt.posZ = tz;
 
-    pkt.speedMps = vecNorm3(gMotion.clampVelX, gMotion.clampVelY, gMotion.clampVelZ);
+    pkt.speedMps = gDeadReckoning.speedMps;
 }
 
 static void computeRelativeDirection()
 {
-    float myX = gMotion.clampPosX;
-    float myY = gMotion.clampPosY;
+    deadReckoningComputePeerView(
+        gDeadReckoning,
+        gSharedFrameLocked,
+        gSharedYawOffsetDeg,
+        gDeadReckoning.snappedCompareHeadingDeg,
+        peerPkt.posX,
+        peerPkt.posY,
+        peerPkt.posZ,
+        gDeadPeerView);
 
-    if (gSharedFrameLocked)
-        rotate2D(gMotion.clampPosX, gMotion.clampPosY, gSharedYawOffsetDeg, myX, myY);
-
-    gRel.dx = peerPkt.posX - myX;
-    gRel.dy = peerPkt.posY - myY;
-    gRel.dz = peerPkt.posZ - gMotion.clampPosZ;
-
-    gRel.distance = vecNorm3(gRel.dx, gRel.dy, gRel.dz);
-
-    gRel.bearingWorldDeg = atan2f(gRel.dy, gRel.dx) * 180.0f / PI;
-    gRel.bearingLocalDeg = wrapAngleDeg(gRel.bearingWorldDeg - gMotion.clampYaw); // TODO CLAMP YAW
+    deadReckoningApplyPeerTruth(
+        gDeadReckoning,
+        gSharedFrameLocked,
+        gSharedYawOffsetDeg,
+        peerPkt.posX,
+        peerPkt.posY,
+        peerPkt.posZ,
+        peerPkt.yawDeg,
+        linkUnpackPeerDirection(peerPkt.seq),
+        linkUnpackPeerConfidence(peerPkt.seq),
+        (peerPkt.flags & (1 << 2)) != 0,
+        (peerPkt.flags & (1 << 4)) != 0,
+        gMotion.stationary,
+        gDeadReckoning.lockedAfterMove,
+        gDeadPeerView);
 }
 
 static void printDebug()
 {
-#if !(DEBUG_SERIAL_ENABLE && DEBUG_MAIN_STATE)
+#if !(DEBUG_SERIAL_ENABLE && (DEBUG_MAIN_STATE || DEBUG_DEAD_RECKONING))
     return;
 #else
     Serial.println();
@@ -773,11 +777,47 @@ static void printDebug()
     Serial.print(gMotion.clampVelZ, 3);
     Serial.println(")");
 
+    Serial.println("-- Dead Reckoning --");
+    Serial.print("accel_mag_ms2=");
+    Serial.println(gDeadReckoning.accelMss, 3);
+    Serial.print("step_m=");
+    Serial.println(gDeadReckoning.stepMeters, 4);
+    Serial.print("gyro_heading_deg=");
+    Serial.println(gDeadReckoning.gyroHeadingDeg, 2);
+    Serial.print("quantized_move_heading_deg=");
+    Serial.println(gDeadReckoning.quantizedMoveHeadingDeg, 2);
+    Serial.print("snapped_roll_deg=");
+    Serial.println(gDeadReckoning.snappedCompareRollDeg, 2);
+    Serial.print("snapped_heading_deg=");
+    Serial.println(gDeadReckoning.snappedCompareHeadingDeg, 2);
+    Serial.print("snapped_facing=");
+    Serial.println(gDeadReckoning.snappedFacingName);
+    Serial.print("locked_after_move=");
+    Serial.println(gDeadReckoning.lockedAfterMove ? "yes" : "no");
+    Serial.print("dead_reckon_speed_mps=");
+    Serial.println(gDeadReckoning.speedMps, 3);
+    Serial.print("dead_reckon_pos=(");
+    Serial.print(gDeadReckoning.posX, 3);
+    Serial.print(", ");
+    Serial.print(gDeadReckoning.posY, 3);
+    Serial.print(", ");
+    Serial.print(gDeadReckoning.posZ, 3);
+    Serial.println(")");
+    Serial.print("dead_reckon_vel=(");
+    Serial.print(gDeadReckoning.velX, 3);
+    Serial.print(", ");
+    Serial.print(gDeadReckoning.velY, 3);
+    Serial.print(", ");
+    Serial.print(gDeadReckoning.velZ, 3);
+    Serial.println(")");
+
     Serial.println("-- Peer State --");
     Serial.print("peer_id=");
     Serial.println(peerPkt.deviceId);
     Serial.print("peer_t_us=");
     Serial.println(peerPkt.timeUs);
+    Serial.print("peer_seq_counter=");
+    Serial.println(linkUnpackCounter(peerPkt.seq));
     Serial.print("peer_pos=(");
     Serial.print(peerPkt.posX, 3);
     Serial.print(", ");
@@ -791,21 +831,35 @@ static void printDebug()
     Serial.println(peerPkt.initYawDeg, 2);
     Serial.print("peer_speed_mps=");
     Serial.println(peerPkt.speedMps, 3);
+    Serial.print("peer_locked_after_move=");
+    Serial.println(((peerPkt.flags & (1 << 4)) != 0) ? "yes" : "no");
+    Serial.print("peer_reports_me_as=");
+    Serial.println(deadReckoningDirectionName(linkUnpackPeerDirection(peerPkt.seq)));
+    Serial.print("peer_report_confidence=");
+    Serial.println(linkUnpackPeerConfidence(peerPkt.seq));
 
     Serial.println("-- Relative To Peer --");
     Serial.print("delta_xyz=(");
-    Serial.print(gRel.dx, 3);
+    Serial.print(gDeadPeerView.dx, 3);
     Serial.print(", ");
-    Serial.print(gRel.dy, 3);
+    Serial.print(gDeadPeerView.dy, 3);
     Serial.print(", ");
-    Serial.print(gRel.dz, 3);
+    Serial.print(gDeadPeerView.dz, 3);
     Serial.println(")");
     Serial.print("distance_m=");
-    Serial.println(gRel.distance, 3);
+    Serial.println(gDeadPeerView.distance, 3);
     Serial.print("bearing_world_deg=");
-    Serial.println(gRel.bearingWorldDeg, 2);
+    Serial.println(gDeadPeerView.bearingWorldDeg, 2);
     Serial.print("bearing_local_deg=");
-    Serial.println(gRel.bearingLocalDeg, 2);
+    Serial.println(gDeadPeerView.bearingLocalDeg, 2);
+    Serial.print("peer_close=");
+    Serial.println(gDeadPeerView.isClose ? "yes" : "no");
+    Serial.print("peer_direction=");
+    Serial.println(deadReckoningDirectionName(gDeadPeerView.directionCode));
+    Serial.print("peer_direction_confidence=");
+    Serial.println(gDeadPeerView.directionConfidence);
+    Serial.print("peer_truth_applied=");
+    Serial.println(gDeadReckoning.peerTruthApplied ? "yes" : "no");
 
     Serial.print("euler_raw_deg=(roll=");
     Serial.print(gMotion.rawRoll, 2);
@@ -814,6 +868,8 @@ static void printDebug()
     Serial.print(", yaw=");
     Serial.print(gMotion.rawYaw, 2);
     Serial.println(")");
+    Serial.print("euler_raw_facing=");
+    Serial.println(gDeadReckoning.snappedFacingName);
 
     Serial.print("euler_clamped_deg=(roll=");
     Serial.print(gMotion.clampRoll, 2);
@@ -877,6 +933,7 @@ void setup()
 #endif
 
     gLastDebugMs = millis();
+    deadReckoningInit(gDeadReckoning, micros());
 }
 
 void loop()
@@ -885,8 +942,18 @@ void loop()
     captureImuState();
     detectMotionFlags();
     updateStationaryHold();
-    maybeLockInitialYaw();
     applyClamps();
+
+    DeadReckoningInput drInput{};
+    drInput.linAccelBodyX = gMotion.linAxB;
+    drInput.linAccelBodyY = gMotion.linAyB;
+    drInput.linAccelBodyZ = gMotion.linAzB;
+    drInput.gyroHeadingDeg = gMotion.clampYaw;
+    drInput.compareRollDeg = gMotion.rawRoll;
+    drInput.stationary = gMotion.stationary;
+    drInput.zupt = gMotion.zupt;
+    deadReckoningUpdate(gDeadReckoning, drInput, micros());
+    maybeLockInitialYaw();
 
     fillLocalPacket(localPkt);
     linkSetLocalState(localPkt);
