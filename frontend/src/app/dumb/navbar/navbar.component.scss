@@ -1,0 +1,16 @@
+@use 'variables' as *;
+
+.navbar {
+  display: flex;
+  align-items: center;
+  padding: 0 1.5rem;
+  height: 3.5rem;
+  background: $bg-elevated;
+  border-bottom: 1px solid $border;
+}
+
+.logo {
+  font-weight: 600;
+  font-size: 1.125rem;
+  color: $text-primary;
+}

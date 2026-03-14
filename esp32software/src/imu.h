@@ -18,6 +18,7 @@ void imu_getVelocity(float &x, float &y, float &z);
 void imu_resetPosition();
 
 void imu_printDebug();
+void imu_zeroGyroRate();
 
 void imu_setStationary(bool still);
 void imu_zeroVelocity();
