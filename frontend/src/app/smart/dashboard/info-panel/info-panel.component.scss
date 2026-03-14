@@ -55,11 +55,11 @@ h2 {
 }
 
 .demo-btn {
-  border-color: $orange;
-  color: $orange;
+  border-color: #a78bfa;
+  color: #a78bfa;
 
   &:hover:not(:disabled) {
-    background: rgba($orange, 0.1);
+    background: rgba(#a78bfa, 0.1);
   }
 }
 

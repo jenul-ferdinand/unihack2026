@@ -1,4 +1,8 @@
-<app-navbar [activeTab]="activeTab" (tabChanged)="onTabChanged($event)" />
+<app-navbar
+  [activeTab]="activeTab"
+  [hasSelectedRun]="selectedRunId !== null"
+  (tabChanged)="onTabChanged($event)"
+/>
 
 @switch (activeTab) {
   @case ('runs') {
@@ -16,7 +20,10 @@
   }
   @case ('info') {
     <main class="content">
-      <app-info-detail-panel />
+      <app-info-detail-panel
+        [run]="selectedRun"
+        (deleteRequested)="onDeleteRun($event)"
+      />
       <app-map-panel />
     </main>
   }

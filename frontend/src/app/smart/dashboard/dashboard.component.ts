@@ -19,6 +19,7 @@ export class DashboardComponent implements OnInit {
   activeTab: NavTab = 'pairing';
   runs: RunSummary[] = [];
   selectedRunId: string | null = null;
+  selectedRun: RunSummary | null = null;
   loading = false;
   demoLoading = false;
 
@@ -41,6 +42,7 @@ export class DashboardComponent implements OnInit {
 
   onRunSelected(runId: string): void {
     this.selectedRunId = runId;
+    this.selectedRun = this.runs.find((r) => r.run_id === runId) ?? null;
     this.loading = true;
     this.mapPanel.clearPaths();
 
@@ -55,6 +57,18 @@ export class DashboardComponent implements OnInit {
         console.error('Failed to load run detail:', err);
         this.loading = false;
       },
+    });
+  }
+
+  onDeleteRun(runId: string): void {
+    this.selectedRunId = null;
+    this.selectedRun = null;
+    this.activeTab = 'runs';
+    this.mapPanel?.clearPaths();
+
+    this.commsService.deleteRun(runId).subscribe({
+      next: () => this.loadRuns(),
+      error: (err) => console.error('Failed to delete run:', err),
     });
   }
 
