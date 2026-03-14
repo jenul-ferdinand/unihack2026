@@ -1,5 +1,5 @@
 import { OpenAPIHono, createRoute } from '@hono/zod-openapi';
-import { PairRequestSchema, PairResponseSchema } from '@unihack/types';
+import { PairRequestSchema, PairResponseSchema, PairStatusResponseSchema } from '@unihack/types';
 
 /** Extract /24 subnet from an IP address (e.g. "192.168.1.10" → "192.168.1") */
 function getSubnet(ip: string): string {
@@ -15,20 +15,27 @@ const pairedResults = new Map<
   { role: 'device' | 'peer'; partner_ip: string; timestamp: number }
 >();
 
-// Clean up stale entries older than 60s
-const STALE_MS = 60_000;
+// Clean up stale entries
+const PENDING_TTL_MS = 30_000;
+const PAIRED_TTL_MS = 10 * 60_000;
+
 function cleanStale() {
   const now = Date.now();
   for (const [subnet, entry] of pendingBySubnet) {
-    if (now - entry.timestamp > STALE_MS) {
+    if (now - entry.timestamp > PENDING_TTL_MS) {
       pendingBySubnet.delete(subnet);
     }
   }
   for (const [ip, entry] of pairedResults) {
-    if (now - entry.timestamp > STALE_MS) {
+    if (now - entry.timestamp > PAIRED_TTL_MS) {
       pairedResults.delete(ip);
     }
   }
+}
+
+/** Clear all paired results — called when a run is stopped */
+export function clearPairing() {
+  pairedResults.clear();
 }
 
 const pair = new OpenAPIHono();
@@ -112,6 +119,44 @@ pair.openapi(
     pendingBySubnet.set(subnet, { ip, timestamp: Date.now() });
 
     return c.json({ status: 'waiting' as const, ip }, 200);
+  },
+);
+
+pair.openapi(
+  createRoute({
+    method: 'get',
+    path: '/status',
+    tags: ['Pair'],
+    responses: {
+      200: {
+        content: {
+          'application/json': {
+            schema: PairStatusResponseSchema,
+          },
+        },
+        description: 'Current pairing status',
+      },
+    },
+  }),
+  async (c) => {
+    cleanStale();
+
+    // Find first paired pair (device + peer)
+    let paired: { device_ip: string; peer_ip: string } | null = null;
+    for (const [ip, entry] of pairedResults) {
+      if (entry.role === 'device') {
+        paired = { device_ip: ip, peer_ip: entry.partner_ip };
+        break;
+      }
+    }
+
+    return c.json(
+      {
+        pending_count: pendingBySubnet.size,
+        paired,
+      },
+      200,
+    );
   },
 );
 

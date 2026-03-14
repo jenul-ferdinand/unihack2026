@@ -6,12 +6,18 @@
       <div class="circle" [class.connected]="deviceConnected"></div>
       <span class="label">Device</span>
       <span class="status">{{ deviceConnected ? 'Connected' : 'Disconnected' }}</span>
+      @if (deviceIp) {
+        <span class="ip">{{ deviceIp }}</span>
+      }
     </div>
 
     <div class="device">
       <div class="circle" [class.connected]="peerConnected"></div>
       <span class="label">Peer</span>
       <span class="status">{{ peerConnected ? 'Connected' : 'Disconnected' }}</span>
+      @if (peerIp) {
+        <span class="ip">{{ peerIp }}</span>
+      }
     </div>
   </div>
 </section>

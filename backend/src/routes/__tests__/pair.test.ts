@@ -86,4 +86,48 @@ describe('Pair API', () => {
       expect(body.status).toBe('waiting');
     });
   });
+
+  describe('GET /status', () => {
+    it('returns empty state when no devices have posted', async () => {
+      const res = await app.request('/api/pair/status');
+      const body = (await res.json()) as any;
+
+      expect(res.status).toBe(200);
+      expect(body).toEqual({ pending_count: 0, paired: null });
+    });
+
+    it('returns pending_count when one device is waiting', async () => {
+      await app.request('/api/pair', json({ ip: '192.168.1.10' }));
+
+      const res = await app.request('/api/pair/status');
+      const body = (await res.json()) as any;
+
+      expect(body.pending_count).toBe(1);
+      expect(body.paired).toBeNull();
+    });
+
+    it('returns paired IPs after two devices pair', async () => {
+      await app.request('/api/pair', json({ ip: '192.168.1.10' }));
+      await app.request('/api/pair', json({ ip: '192.168.1.20' }));
+
+      const res = await app.request('/api/pair/status');
+      const body = (await res.json()) as any;
+
+      expect(body.pending_count).toBe(0);
+      expect(body.paired).not.toBeNull();
+      expect([body.paired.device_ip, body.paired.peer_ip].sort()).toEqual(
+        ['192.168.1.10', '192.168.1.20'],
+      );
+    });
+
+    it('clears pending after pairing completes', async () => {
+      await app.request('/api/pair', json({ ip: '192.168.1.10' }));
+      await app.request('/api/pair', json({ ip: '192.168.1.20' }));
+
+      const res = await app.request('/api/pair/status');
+      const body = (await res.json()) as any;
+
+      expect(body.pending_count).toBe(0);
+    });
+  });
 });

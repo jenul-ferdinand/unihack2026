@@ -7,6 +7,7 @@ import {
   CommsStopSchema,
 } from '@unihack/types';
 import { runService } from '../services/run.service';
+import { clearPairing } from './pair';
 
 const comms = new OpenAPIHono();
 
@@ -105,6 +106,7 @@ comms.openapi(
   }),
   async (c) => {
     const ok = await runService.stopRun();
+    if (ok) clearPairing();
     console.log('Session stopped, success:', ok);
     return c.json({ success: ok }, 200);
   },

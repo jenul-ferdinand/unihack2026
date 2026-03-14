@@ -11,3 +11,13 @@ export const PairResponseSchema = z.object({
   partner_ip: z.string().optional(),
 });
 
+export const PairStatusResponseSchema = z.object({
+  pending_count: z.number(),
+  paired: z
+    .object({
+      device_ip: z.string(),
+      peer_ip: z.string(),
+    })
+    .nullable(),
+});
+
