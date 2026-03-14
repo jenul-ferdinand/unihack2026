@@ -1,0 +1,100 @@
+@use 'variables' as *;
+
+:host {
+  flex: 0 0 22rem;
+}
+
+.info-panel {
+  width: 100%;
+  height: 100%;
+  padding: 1.5rem;
+  background: $bg-surface;
+  border-right: 1px solid $border;
+  overflow-y: auto;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+h2 {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: $text-muted;
+}
+
+.refresh-btn {
+  background: $bg-elevated;
+  color: $text-primary;
+  border: 1px solid $border;
+  border-radius: 4px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+
+  &:hover {
+    background: $border;
+  }
+}
+
+.empty {
+  color: $text-muted;
+  font-size: 0.8rem;
+}
+
+.run-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.run-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  background: $bg-elevated;
+  border: 1px solid $border;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: $text-primary;
+
+  &:hover {
+    border-color: $text-muted;
+  }
+
+  &.selected {
+    border-color: $accent-device;
+  }
+}
+
+.status {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: $text-muted;
+
+  &.active {
+    color: $accent-device;
+  }
+}
+
+.date {
+  flex: 1;
+  color: $text-muted;
+}
+
+.points {
+  color: $text-muted;
+  font-size: 0.75rem;
+}

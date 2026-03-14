@@ -1,0 +1,26 @@
+<section class="info-panel">
+  <div class="header">
+    <h2>Runs</h2>
+    <button class="refresh-btn" (click)="refresh()">Refresh</button>
+  </div>
+
+  @if (runs.length === 0) {
+    <p class="empty">No runs recorded yet.</p>
+  }
+
+  <ul class="run-list">
+    @for (run of runs; track run.run_id) {
+      <li
+        class="run-item"
+        [class.selected]="run.run_id === selectedRunId"
+        (click)="selectRun(run.run_id)"
+      >
+        <span class="status" [class.active]="run.status === 'active'">
+          {{ run.status }}
+        </span>
+        <span class="date">{{ formatDate(run.created_at) }}</span>
+        <span class="points">{{ run.point_count }} pts</span>
+      </li>
+    }
+  </ul>
+</section>

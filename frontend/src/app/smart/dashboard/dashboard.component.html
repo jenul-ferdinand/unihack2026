@@ -1,0 +1,10 @@
+<app-navbar />
+<main class="content">
+  <app-info-panel
+    [runs]="runs"
+    [selectedRunId]="selectedRunId"
+    (runSelected)="onRunSelected($event)"
+    (refreshRequested)="loadRuns()"
+  />
+  <app-map-panel />
+</main>

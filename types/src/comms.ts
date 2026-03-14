@@ -35,6 +35,10 @@ export const CommsResponseSchema = z.object({
   success: z.boolean(),
 });
 
+export const CommsStartResponseSchema = z.object({
+  run_id: z.string(),
+});
+
 export const CommsStartSchema = z.object({
   start: z.literal(1),
 });
@@ -43,7 +47,38 @@ export const CommsStopSchema = z.object({
   stop: z.literal(1),
 });
 
+export const PathPointSchema = z.object({
+  device_pos: Vector3Schema,
+  peer_pos: Vector3Schema,
+  timestamp: z.string(),
+});
+
+export const RunSummarySchema = z.object({
+  run_id: z.string(),
+  status: z.enum(['active', 'completed']),
+  created_at: z.string(),
+  stopped_at: z.string().nullable(),
+  point_count: z.number(),
+});
+
+export const RunsListResponseSchema = z.object({
+  runs: z.array(RunSummarySchema),
+});
+
+export const RunDetailResponseSchema = z.object({
+  run_id: z.string(),
+  status: z.enum(['active', 'completed']),
+  created_at: z.string(),
+  stopped_at: z.string().nullable(),
+  path: z.array(PathPointSchema),
+});
+
 export type CommsRequest = z.infer<typeof CommsRequestSchema>;
 export type CommsResponse = z.infer<typeof CommsResponseSchema>;
+export type CommsStartResponse = z.infer<typeof CommsStartResponseSchema>;
 export type CommsStart = z.infer<typeof CommsStartSchema>;
 export type CommsStop = z.infer<typeof CommsStopSchema>;
+export type PathPoint = z.infer<typeof PathPointSchema>;
+export type RunSummary = z.infer<typeof RunSummarySchema>;
+export type RunsListResponse = z.infer<typeof RunsListResponseSchema>;
+export type RunDetailResponse = z.infer<typeof RunDetailResponseSchema>;
