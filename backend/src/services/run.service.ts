@@ -63,6 +63,13 @@ export class RunService {
     return runId;
   }
 
+  async deleteRun(id: string): Promise<boolean> {
+    if (this.activeRunId === id) {
+      this.activeRunId = null;
+    }
+    return this.repo.deleteById(id);
+  }
+
   async getRunDetail(id: string): Promise<RunDetailResponse | null> {
     const run = await this.repo.findById(id);
     if (!run) return null;
