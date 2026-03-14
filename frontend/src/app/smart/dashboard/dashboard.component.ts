@@ -4,12 +4,13 @@ import { InfoPanelComponent } from './info-panel/info-panel.component';
 import { InfoDetailPanelComponent } from '../../dumb/info-detail-panel/info-detail-panel.component';
 import { MapPanelComponent } from './map-panel/map-panel.component';
 import { PairingComponent } from '../pairing/pairing.component';
+import { HelpPageComponent } from '../../dumb/help-page/help-page.component';
 import { RunsService, RunSummary } from '../../services/runs.service';
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [NavbarComponent, InfoPanelComponent, InfoDetailPanelComponent, MapPanelComponent, PairingComponent],
+  imports: [NavbarComponent, InfoPanelComponent, InfoDetailPanelComponent, MapPanelComponent, PairingComponent, HelpPageComponent],
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.scss',
 })

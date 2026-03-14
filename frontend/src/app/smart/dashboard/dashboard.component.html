@@ -8,6 +8,10 @@
   <main class="content">
     <app-pairing />
   </main>
+} @else if (activeTab === 'help') {
+  <main class="content">
+    <app-help-page />
+  </main>
 } @else {
   <main class="content">
     @if (activeTab === 'runs') {

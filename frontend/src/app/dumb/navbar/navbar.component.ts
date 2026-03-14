@@ -1,6 +1,6 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
 
-export type NavTab = 'runs' | 'info' | 'pairing';
+export type NavTab = 'runs' | 'info' | 'pairing' | 'help';
 
 @Component({
   selector: 'app-navbar',

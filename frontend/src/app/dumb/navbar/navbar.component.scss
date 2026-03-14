@@ -10,6 +10,30 @@
   gap: 2rem;
 }
 
+.help-btn {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: $text-muted;
+  cursor: pointer;
+
+  &:hover {
+    color: $text-primary;
+    background: rgba($border, 0.4);
+  }
+
+  &.active {
+    color: $orange;
+    background: rgba($orange, 0.1);
+  }
+}
+
 .logo {
   font-weight: 600;
   font-size: 1.125rem;
