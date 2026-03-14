@@ -48,12 +48,14 @@ export class DashboardComponent implements OnInit {
 
     this.runsService.getRunDetail(runId).subscribe({
       next: (detail) => {
+        if (this.selectedRunId !== runId) return;
         for (const point of detail.path) {
           this.mapPanel.addPoints(point.device_pos, point.peer_pos);
         }
         this.loading = false;
       },
       error: (err) => {
+        if (this.selectedRunId !== runId) return;
         console.error('Failed to load run detail:', err);
         this.loading = false;
       },
