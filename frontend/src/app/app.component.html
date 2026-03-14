@@ -1,1 +1,10 @@
-<router-outlet></router-outlet>
+@if (isDesktopViewport) {
+  <router-outlet></router-outlet>
+} @else {
+  <section class="viewport-guard">
+    <div class="viewport-guard__content">
+      <h1>Antrum DASH</h1>
+      <p>You must use a laptop or desktop to use this app.</p>
+    </div>
+  </section>
+}

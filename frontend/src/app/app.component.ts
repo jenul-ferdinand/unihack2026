@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, HostListener, OnInit } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 
 @Component({
@@ -8,6 +8,21 @@ import { RouterOutlet } from '@angular/router';
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss'
 })
-export class AppComponent {
-  title = 'frontend';
+export class AppComponent implements OnInit {
+  private static readonly MIN_DESKTOP_WIDTH = 1100;
+
+  isDesktopViewport = true;
+
+  ngOnInit(): void {
+    this.updateViewportState();
+  }
+
+  @HostListener('window:resize')
+  onWindowResize(): void {
+    this.updateViewportState();
+  }
+
+  private updateViewportState(): void {
+    this.isDesktopViewport = window.innerWidth >= AppComponent.MIN_DESKTOP_WIDTH;
+  }
 }
