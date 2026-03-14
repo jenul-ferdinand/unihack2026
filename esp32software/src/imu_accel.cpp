@@ -2,6 +2,7 @@
 #include "imu_math.h"
 #include <Arduino.h>
 #include <math.h>
+#include "quarternian.h"
 
 static constexpr float G_MSS = 9.80665f;
 static constexpr float ACC_DEADBAND_MSS = 0.25f;
@@ -66,12 +67,37 @@ void imuAccelProcess(ImuMotionState &motion,
     motion.linBody[2] = rawAz - gravityBody[2];
     imuMathApplyDeadband(motion.linBody, ACC_DEADBAND_MSS);
 
+    motion.linWorld[0] = motion.linBody[0];
+    motion.linWorld[1] = motion.linBody[1];
+    motion.linWorld[2] = motion.linBody[2];
     imuMathRotateVectorByQuat(quat, motion.linBody, motion.linWorld);
     imuMathApplyDeadband(motion.linWorld, ACC_DEADBAND_MSS);
 
+    // Convert quaternion to Euler for debug
+    float rollDeg = 0.0f;
+    float pitchDeg = 0.0f;
+    float yawDeg = 0.0f;
+    imuMathQuatToEulerDeg(quat, rollDeg, pitchDeg, yawDeg);
+
+    // Clamp gyro rates below threshold as noise
+    const float gyroRaw[3] = {rawGx, rawGy, rawGz};
+    float gyroClamped[3] = {rawGx, rawGy, rawGz};
+
+    if (fabsf(gyroClamped[0]) < GYRO_NOISE_THRESH_DPS)
+        gyroClamped[0] = 0.0f;
+    if (fabsf(gyroClamped[1]) < GYRO_NOISE_THRESH_DPS)
+        gyroClamped[1] = 0.0f;
+    if (fabsf(gyroClamped[2]) < GYRO_NOISE_THRESH_DPS)
+        gyroClamped[2] = 0.0f;
+
     const float linAccNorm = imuMathNorm3(
         motion.linBody[0], motion.linBody[1], motion.linBody[2]);
-    const float gyroNorm = imuMathNorm3(rawGx, rawGy, rawGz);
+
+    const float gyroNormRaw = imuMathNorm3(
+        gyroRaw[0], gyroRaw[1], gyroRaw[2]);
+
+    const float gyroNormClamped = imuMathNorm3(
+        gyroClamped[0], gyroClamped[1], gyroClamped[2]);
 
 #if IMU_DEBUG
     Serial.println();
@@ -98,9 +124,6 @@ void imuAccelProcess(ImuMotionState &motion,
     Serial.print("linAccNorm: ");
     Serial.println(linAccNorm, 4);
 
-    Serial.print("gyroNorm: ");
-    Serial.println(gyroNorm, 4);
-
     Serial.print("velWorld BEFORE: (");
     Serial.print(motion.velWorld[0], 4);
     Serial.print(", ");
@@ -110,14 +133,51 @@ void imuAccelProcess(ImuMotionState &motion,
     Serial.println(")");
 #endif
 
+#if GYRO_DEBUG
+    Serial.println("------ GYRO DEBUG ------");
+    Serial.print("gyro raw dps: (");
+    Serial.print(gyroRaw[0], 4);
+    Serial.print(", ");
+    Serial.print(gyroRaw[1], 4);
+    Serial.print(", ");
+    Serial.print(gyroRaw[2], 4);
+    Serial.println(")");
+
+    Serial.print("gyro clamped dps: (");
+    Serial.print(gyroClamped[0], 4);
+    Serial.print(", ");
+    Serial.print(gyroClamped[1], 4);
+    Serial.print(", ");
+    Serial.print(gyroClamped[2], 4);
+    Serial.println(")");
+
+    Serial.print("gyroNorm raw: ");
+    Serial.println(gyroNormRaw, 4);
+
+    Serial.print("gyroNorm clamped: ");
+    Serial.println(gyroNormClamped, 4);
+
+    Serial.print("gyro noise threshold dps: ");
+    Serial.println(GYRO_NOISE_THRESH_DPS, 4);
+
+    Serial.print("roll deg: ");
+    Serial.println(rollDeg, 3);
+
+    Serial.print("pitch deg: ");
+    Serial.println(pitchDeg, 3);
+
+    Serial.print("yaw deg: ");
+    Serial.println(yawDeg, 3);
+#endif
+
     if (!motion.motionBurst)
     {
-        if (linAccNorm > BURST_ACC_THRESH_MSS || gyroNorm > BURST_GYRO_THRESH_DPS)
+        if (linAccNorm > BURST_ACC_THRESH_MSS || gyroNormClamped > BURST_GYRO_THRESH_DPS)
             motion.motionBurst = true;
     }
     else
     {
-        if (linAccNorm < EXIT_BURST_ACC_THRESH_MSS && gyroNorm < EXIT_BURST_GYRO_THRESH_DPS)
+        if (linAccNorm < EXIT_BURST_ACC_THRESH_MSS && gyroNormClamped < EXIT_BURST_GYRO_THRESH_DPS)
             motion.motionBurst = false;
     }
 
@@ -222,12 +282,10 @@ void imuAccelProcess(ImuMotionState &motion,
         return;
     }
 
-    // Keep position if you still want it for debugging
     motion.posWorld[0] += motion.velWorld[0] * dt;
     motion.posWorld[1] += motion.velWorld[1] * dt;
     motion.posWorld[2] += motion.velWorld[2] * dt;
 
-    // Debug-only clamp calculation
     float posNorm = imuMathNorm3(
         motion.posWorld[0], motion.posWorld[1], motion.posWorld[2]);
 
@@ -272,7 +330,6 @@ void imuAccelProcess(ImuMotionState &motion,
     Serial.println(")");
 #endif
 
-    // This is the magnitude of distance travelled during this frame
     const float frameDistance = speedNorm * dt;
 
     motion.travelMeters += frameDistance;
