@@ -64,15 +64,14 @@ bool linkExchange(RF24 &radio, StatePacket &peerPkt)
 
     radio.stopListening();
 
-    bool ok = radio.write(&gLocalState, sizeof(gLocalState));
-
+    const bool ok = radio.write(&gLocalState, sizeof(gLocalState));
     if (!ok)
         return false;
 
     if (!radio.isAckPayloadAvailable())
         return false;
 
-    uint8_t len = radio.getDynamicPayloadSize();
+    const uint8_t len = radio.getDynamicPayloadSize();
     if (len != sizeof(StatePacket))
     {
         radio.flush_rx();
@@ -91,7 +90,7 @@ bool linkPollResponder(RF24 &radio, StatePacket &rxPkt)
     if (!radio.available())
         return false;
 
-    uint8_t len = radio.getDynamicPayloadSize();
+    const uint8_t len = radio.getDynamicPayloadSize();
     if (len != sizeof(StatePacket))
     {
         radio.flush_rx();
