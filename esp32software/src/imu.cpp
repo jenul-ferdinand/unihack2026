@@ -267,11 +267,24 @@ void imu_setStationary(bool still)
     g_stationary_hold = still;
     if (still)
         imuAccelZeroVelocity(gMotion);
+        imu_zeroGyroRate();
 }
 
 void imu_zeroVelocity()
 {
     imuAccelZeroVelocity(gMotion);
+}
+
+void imu_zeroGyroRate()
+{
+    // Reset pitch (Y) and yaw (Z) bias only
+    gAccelCal.gyroBiasDps[1] += raw_gy_dps;
+    gAccelCal.gyroBiasDps[2] += raw_gz_dps;
+
+    raw_gy_dps = 0.0f;
+    raw_gz_dps = 0.0f;
+
+    // Roll (X axis) is intentionally left unchanged
 }
 
 void imu_resetPosition()

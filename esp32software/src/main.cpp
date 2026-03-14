@@ -11,39 +11,39 @@
 #define CSN_PIN 5
 
 // CHANGE THESE PER DEVICE
-#define SELF_ID        1
-#define IS_TIME_MASTER 1
+#define SELF_ID 2
+#define IS_TIME_MASTER 0
 
 #if IS_TIME_MASTER
-  #define IS_POLLER 1
+#define IS_POLLER 1
 #else
-  #define IS_POLLER 0
+#define IS_POLLER 0
 #endif
 
 RF24 radio(CE_PIN, CSN_PIN);
 
 static uint16_t gSeq = 0;
 static StatePacket localPkt = {};
-static StatePacket peerPkt  = {};
+static StatePacket peerPkt = {};
 static TimeSyncState gTimeSync;
 
 // ---------- Tunable thresholds ----------
-static const float G_MS2                    = 9.80665f;
-static const float STATIONARY_GYRO_DPS      = 2.0f;
-static const float STATIONARY_ACC_ERR_MS2   = 0.35f;
-static const float ZUPT_GYRO_DPS            = 1.2f;
-static const float ZUPT_ACC_ERR_MS2         = 0.20f;
+static const float G_MS2 = 9.80665f;
+static const float STATIONARY_GYRO_DPS = 2.0f;
+static const float STATIONARY_ACC_ERR_MS2 = 0.35f;
+static const float ZUPT_GYRO_DPS = 1.2f;
+static const float ZUPT_ACC_ERR_MS2 = 0.20f;
 
-static const int STILL_SAMPLES_TO_LATCH     = 8;
-static const int MOVE_SAMPLES_TO_RELEASE    = 4;
+static const int STILL_SAMPLES_TO_LATCH = 8;
+static const int MOVE_SAMPLES_TO_RELEASE = 4;
 
 // Hard reset after being still a bit
-static const unsigned long STILL_RESET_MS   = 1200;
+static const unsigned long STILL_RESET_MS = 1200;
 
 // Shared-frame alignment
-static bool  gInitialYawLocked = false;
+static bool gInitialYawLocked = false;
 static float gInitialYawDeg = 0.0f;
-static bool  gSharedFrameLocked = false;
+static bool gSharedFrameLocked = false;
 static float gSharedYawOffsetDeg = 0.0f;
 
 // ---------- Local estimator/debug state ----------
@@ -56,7 +56,6 @@ struct MotionState
 
     float linAxB = 0, linAyB = 0, linAzB = 0;
     float linAxW = 0, linAyW = 0, linAzW = 0;
-    float roll = 0, pitch = 0, yaw = 0;
 
     // Raw pose from IMU layer, shifted so startup = origin
     float rawPosX = 0, rawPosY = 0, rawPosZ = 0;
@@ -88,6 +87,12 @@ struct MotionState
     unsigned long stillSinceMs = 0;
     bool resetDoneThisStillness = false;
     bool prevHold;
+
+    float rawRoll = 0, rawPitch = 0, rawYaw = 0;
+    float clampRoll = 0, clampPitch = 0, clampYaw = 0;
+    float corrRoll = 0, corrPitch = 0, corrYaw = 0;
+
+    float orientOffRoll = 0, orientOffPitch = 0, orientOffYaw = 0;
 };
 
 static MotionState gMotion;
@@ -109,8 +114,10 @@ static unsigned long gLastDebugMs = 0;
 // ---------- Utility ----------
 static float wrapAngleDeg(float deg)
 {
-    while (deg > 180.0f) deg -= 360.0f;
-    while (deg < -180.0f) deg += 360.0f;
+    while (deg > 180.0f)
+        deg -= 360.0f;
+    while (deg < -180.0f)
+        deg += 360.0f;
     return deg;
 }
 
@@ -146,9 +153,12 @@ static uint8_t buildFlags()
     // bit6 = initial yaw valid / shared frame info valid
     // bit7 = shared frame locked locally
 
-    if (gMotion.stationary) flags |= (1 << 0);
-    if (gMotion.zupt)       flags |= (1 << 1);
-    if (gMotion.stationary) flags |= (1 << 2);
+    if (gMotion.stationary)
+        flags |= (1 << 0);
+    if (gMotion.zupt)
+        flags |= (1 << 1);
+    if (gMotion.stationary)
+        flags |= (1 << 2);
 
 #if IS_TIME_MASTER
     flags |= (1 << 3);
@@ -157,8 +167,10 @@ static uint8_t buildFlags()
         flags |= (1 << 3);
 #endif
 
-    if (gInitialYawLocked)  flags |= (1 << 6);
-    if (gSharedFrameLocked) flags |= (1 << 7);
+    if (gInitialYawLocked)
+        flags |= (1 << 6);
+    if (gSharedFrameLocked)
+        flags |= (1 << 7);
 
     return flags;
 }
@@ -182,7 +194,7 @@ static void captureImuState()
 
     imu_getLinearAccel(gMotion.linAxB, gMotion.linAyB, gMotion.linAzB);
     imu_getLinearAccelWorld(gMotion.linAxW, gMotion.linAyW, gMotion.linAzW);
-    imu_getEuler(gMotion.roll, gMotion.pitch, gMotion.yaw);
+    imu_getEuler(gMotion.rawRoll, gMotion.rawPitch, gMotion.rawYaw);
 
     float px, py, pz;
     float vx, vy, vz;
@@ -210,12 +222,12 @@ static void captureImuState()
 static void detectMotionFlags()
 {
     gMotion.gyroNorm = vecNorm3(gMotion.rawGx, gMotion.rawGy, gMotion.rawGz);
-    gMotion.accNorm  = vecNorm3(gMotion.rawAx, gMotion.rawAy, gMotion.rawAz);
-    gMotion.accErr   = fabsf(gMotion.accNorm - G_MS2);
+    gMotion.accNorm = vecNorm3(gMotion.rawAx, gMotion.rawAy, gMotion.rawAz);
+    gMotion.accErr = fabsf(gMotion.accNorm - G_MS2);
 
     const bool stillCandidate =
         (gMotion.gyroNorm < STATIONARY_GYRO_DPS) &&
-        (gMotion.accErr   < STATIONARY_ACC_ERR_MS2);
+        (gMotion.accErr < STATIONARY_ACC_ERR_MS2);
 
     if (stillCandidate)
     {
@@ -235,7 +247,7 @@ static void detectMotionFlags()
 
     gMotion.zupt =
         (gMotion.gyroNorm < ZUPT_GYRO_DPS) &&
-        (gMotion.accErr   < ZUPT_ACC_ERR_MS2);
+        (gMotion.accErr < ZUPT_ACC_ERR_MS2);
 }
 
 static void maybeLockInitialYaw()
@@ -252,7 +264,7 @@ static void maybeLockInitialYaw()
     if (millis() - gMotion.stillSinceMs < STILL_RESET_MS)
         return;
 
-    gInitialYawDeg = gMotion.yaw;
+    gInitialYawDeg = gMotion.rawYaw;
     gInitialYawLocked = true;
 
 #if IS_TIME_MASTER
@@ -287,7 +299,12 @@ static void updateStationaryHold()
     gMotion.imuHoldActive = hold;
 
     const bool enteredHold = (hold && !gMotion.prevHold);
-    const bool exitedHold  = (!hold && gMotion.prevHold);
+    const bool exitedHold = (!hold && gMotion.prevHold);
+
+    // Current corrected orientation from raw + correction
+    const float correctedRoll = wrapAngleDeg(gMotion.rawRoll + gMotion.corrRoll);
+    const float correctedPitch = wrapAngleDeg(gMotion.rawPitch + gMotion.corrPitch);
+    const float correctedYaw = wrapAngleDeg(gMotion.rawYaw + gMotion.corrYaw);
 
     if (enteredHold)
     {
@@ -295,23 +312,28 @@ static void updateStationaryHold()
         gMotion.resetDoneThisStillness = false;
 
         // Immediate zero-velocity update on entering stillness
-        // TODO UNDO ZERO imu_zeroVelocity();
+        // imu_zeroVelocity();
 
         gMotion.clampVelX = 0.0f;
         gMotion.clampVelY = 0.0f;
         gMotion.clampVelZ = 0.0f;
+
+        // Freeze current corrected orientation immediately
+        gMotion.clampRoll = correctedRoll;
+        gMotion.clampPitch = correctedPitch;
+        gMotion.clampYaw = correctedYaw;
     }
 
     if (hold)
     {
         // Keep velocity killed while stationary
-        //TODO UNDO ZERO imu_zeroVelocity();
+        // imu_zeroVelocity();
 
         if (!gMotion.resetDoneThisStillness &&
             (now - gMotion.stillSinceMs >= STILL_RESET_MS))
         {
             // One-time cleanup after enough stillness
-            //TODO UNDO ZERO imu_zeroVelocity();
+            // imu_zeroVelocity();
 
             // Lock clamp position where it currently is
             gMotion.clampPosX = gMotion.rawPosX + gMotion.corrX;
@@ -327,6 +349,15 @@ static void updateStationaryHold()
             gMotion.clampVelY = 0.0f;
             gMotion.clampVelZ = 0.0f;
 
+            // Re-zero orientation once we've been still long enough
+            gMotion.clampRoll = 0.0f;
+            gMotion.clampPitch = 0.0f;
+            gMotion.clampYaw = 0.0f;
+
+            gMotion.corrRoll = wrapAngleDeg(gMotion.clampRoll - gMotion.rawRoll);
+            gMotion.corrPitch = wrapAngleDeg(gMotion.clampPitch - gMotion.rawPitch);
+            gMotion.corrYaw = wrapAngleDeg(gMotion.clampYaw - gMotion.rawYaw);
+
             gMotion.resetDoneThisStillness = true;
         }
     }
@@ -341,11 +372,16 @@ static void updateStationaryHold()
 
     gMotion.prevHold = hold;
 }
+
 static void applyClamps()
 {
     const float correctedX = gMotion.rawPosX + gMotion.corrX;
     const float correctedY = gMotion.rawPosY + gMotion.corrY;
     const float correctedZ = gMotion.rawPosZ + gMotion.corrZ;
+
+    const float correctedRoll = wrapAngleDeg(gMotion.rawRoll + gMotion.corrRoll);
+    const float correctedPitch = wrapAngleDeg(gMotion.rawPitch + gMotion.corrPitch);
+    const float correctedYaw = wrapAngleDeg(gMotion.rawYaw + gMotion.corrYaw);
 
     if (gMotion.stationary || gMotion.zupt)
     {
@@ -358,7 +394,12 @@ static void applyClamps()
         gMotion.clampVelY = 0.0f;
         gMotion.clampVelZ = 0.0f;
 
-        //TODO UNDO ZERO imu_zeroVelocity();
+        // Hold orientation fixed at last clamped point
+        gMotion.corrRoll = wrapAngleDeg(gMotion.clampRoll - gMotion.rawRoll);
+        gMotion.corrPitch = wrapAngleDeg(gMotion.clampPitch - gMotion.rawPitch);
+        gMotion.corrYaw = wrapAngleDeg(gMotion.clampYaw - gMotion.rawYaw);
+
+        // imu_zeroVelocity();
     }
     else
     {
@@ -370,17 +411,22 @@ static void applyClamps()
         gMotion.clampVelX = gMotion.rawVelX;
         gMotion.clampVelY = gMotion.rawVelY;
         gMotion.clampVelZ = gMotion.rawVelZ;
+
+        // During motion, let corrected orientation evolve
+        gMotion.clampRoll = correctedRoll;
+        gMotion.clampPitch = correctedPitch;
+        gMotion.clampYaw = correctedYaw;
     }
 }
 
 static void fillLocalPacket(StatePacket &pkt)
 {
     pkt.deviceId = SELF_ID;
-    pkt.flags    = buildFlags();
-    pkt.seq      = gSeq++;
-    pkt.timeUs   = sharedNowUs();
+    pkt.flags = buildFlags();
+    pkt.seq = gSeq++;
+    pkt.timeUs = sharedNowUs();
 
-    pkt.yawDeg    = gMotion.yaw;
+    pkt.yawDeg = gMotion.clampYaw; // TODO CLAMP YAW
     pkt.initYawDeg = gInitialYawDeg;
 
     float tx = gMotion.clampPosX;
@@ -412,7 +458,7 @@ static void computeRelativeDirection()
     gRel.distance = vecNorm3(gRel.dx, gRel.dy, gRel.dz);
 
     gRel.bearingWorldDeg = atan2f(gRel.dy, gRel.dx) * 180.0f / PI;
-    gRel.bearingLocalDeg = wrapAngleDeg(gRel.bearingWorldDeg - gMotion.yaw);
+    gRel.bearingLocalDeg = wrapAngleDeg(gRel.bearingWorldDeg - gMotion.clampYaw); // TODO CLAMP YAW
 }
 
 static void printDebug()
@@ -446,37 +492,52 @@ static void printDebug()
 
     Serial.println("-- Raw Sensors --");
     Serial.print("accel_raw=(");
-    Serial.print(gMotion.rawAx, 3); Serial.print(", ");
-    Serial.print(gMotion.rawAy, 3); Serial.print(", ");
-    Serial.print(gMotion.rawAz, 3); Serial.println(")");
+    Serial.print(gMotion.rawAx, 3);
+    Serial.print(", ");
+    Serial.print(gMotion.rawAy, 3);
+    Serial.print(", ");
+    Serial.print(gMotion.rawAz, 3);
+    Serial.println(")");
 
     Serial.print("gyro_raw=(");
-    Serial.print(gMotion.rawGx, 3); Serial.print(", ");
-    Serial.print(gMotion.rawGy, 3); Serial.print(", ");
-    Serial.print(gMotion.rawGz, 3); Serial.println(")");
+    Serial.print(gMotion.rawGx, 3);
+    Serial.print(", ");
+    Serial.print(gMotion.rawGy, 3);
+    Serial.print(", ");
+    Serial.print(gMotion.rawGz, 3);
+    Serial.println(")");
 
     Serial.print("mag_raw=(");
-    Serial.print(gMotion.rawMx, 3); Serial.print(", ");
-    Serial.print(gMotion.rawMy, 3); Serial.print(", ");
-    Serial.print(gMotion.rawMz, 3); Serial.println(")");
+    Serial.print(gMotion.rawMx, 3);
+    Serial.print(", ");
+    Serial.print(gMotion.rawMy, 3);
+    Serial.print(", ");
+    Serial.print(gMotion.rawMz, 3);
+    Serial.println(")");
 
     Serial.println("-- Fused IMU --");
     Serial.print("linacc_body=(");
-    Serial.print(gMotion.linAxB, 3); Serial.print(", ");
-    Serial.print(gMotion.linAyB, 3); Serial.print(", ");
-    Serial.print(gMotion.linAzB, 3); Serial.println(")");
+    Serial.print(gMotion.linAxB, 3);
+    Serial.print(", ");
+    Serial.print(gMotion.linAyB, 3);
+    Serial.print(", ");
+    Serial.print(gMotion.linAzB, 3);
+    Serial.println(")");
 
     Serial.print("linacc_world=(");
-    Serial.print(gMotion.linAxW, 3); Serial.print(", ");
-    Serial.print(gMotion.linAyW, 3); Serial.print(", ");
-    Serial.print(gMotion.linAzW, 3); Serial.println(")");
+    Serial.print(gMotion.linAxW, 3);
+    Serial.print(", ");
+    Serial.print(gMotion.linAyW, 3);
+    Serial.print(", ");
+    Serial.print(gMotion.linAzW, 3);
+    Serial.println(")");
 
     Serial.print("euler_deg=(roll=");
-    Serial.print(gMotion.roll, 2);
+    Serial.print(gMotion.clampRoll, 2);
     Serial.print(", pitch=");
-    Serial.print(gMotion.pitch, 2);
+    Serial.print(gMotion.clampPitch, 2);
     Serial.print(", yaw=");
-    Serial.print(gMotion.yaw, 2);
+    Serial.print(gMotion.clampYaw, 2);
     Serial.println(")");
 
     Serial.println("-- Motion Flags --");
@@ -510,29 +571,44 @@ static void printDebug()
 
     Serial.println("-- Position / Velocity --");
     Serial.print("raw_pos=(");
-    Serial.print(gMotion.rawPosX, 3); Serial.print(", ");
-    Serial.print(gMotion.rawPosY, 3); Serial.print(", ");
-    Serial.print(gMotion.rawPosZ, 3); Serial.println(")");
+    Serial.print(gMotion.rawPosX, 3);
+    Serial.print(", ");
+    Serial.print(gMotion.rawPosY, 3);
+    Serial.print(", ");
+    Serial.print(gMotion.rawPosZ, 3);
+    Serial.println(")");
 
     Serial.print("raw_vel=(");
-    Serial.print(gMotion.rawVelX, 3); Serial.print(", ");
-    Serial.print(gMotion.rawVelY, 3); Serial.print(", ");
-    Serial.print(gMotion.rawVelZ, 3); Serial.println(")");
+    Serial.print(gMotion.rawVelX, 3);
+    Serial.print(", ");
+    Serial.print(gMotion.rawVelY, 3);
+    Serial.print(", ");
+    Serial.print(gMotion.rawVelZ, 3);
+    Serial.println(")");
 
     Serial.print("corr_offset=(");
-    Serial.print(gMotion.corrX, 3); Serial.print(", ");
-    Serial.print(gMotion.corrY, 3); Serial.print(", ");
-    Serial.print(gMotion.corrZ, 3); Serial.println(")");
+    Serial.print(gMotion.corrX, 3);
+    Serial.print(", ");
+    Serial.print(gMotion.corrY, 3);
+    Serial.print(", ");
+    Serial.print(gMotion.corrZ, 3);
+    Serial.println(")");
 
     Serial.print("clamped_pos=(");
-    Serial.print(gMotion.clampPosX, 3); Serial.print(", ");
-    Serial.print(gMotion.clampPosY, 3); Serial.print(", ");
-    Serial.print(gMotion.clampPosZ, 3); Serial.println(")");
+    Serial.print(gMotion.clampPosX, 3);
+    Serial.print(", ");
+    Serial.print(gMotion.clampPosY, 3);
+    Serial.print(", ");
+    Serial.print(gMotion.clampPosZ, 3);
+    Serial.println(")");
 
     Serial.print("clamped_vel=(");
-    Serial.print(gMotion.clampVelX, 3); Serial.print(", ");
-    Serial.print(gMotion.clampVelY, 3); Serial.print(", ");
-    Serial.print(gMotion.clampVelZ, 3); Serial.println(")");
+    Serial.print(gMotion.clampVelX, 3);
+    Serial.print(", ");
+    Serial.print(gMotion.clampVelY, 3);
+    Serial.print(", ");
+    Serial.print(gMotion.clampVelZ, 3);
+    Serial.println(")");
 
     Serial.println("-- Peer State --");
     Serial.print("peer_id=");
@@ -540,9 +616,12 @@ static void printDebug()
     Serial.print("peer_t_us=");
     Serial.println(peerPkt.timeUs);
     Serial.print("peer_pos=(");
-    Serial.print(peerPkt.posX, 3); Serial.print(", ");
-    Serial.print(peerPkt.posY, 3); Serial.print(", ");
-    Serial.print(peerPkt.posZ, 3); Serial.println(")");
+    Serial.print(peerPkt.posX, 3);
+    Serial.print(", ");
+    Serial.print(peerPkt.posY, 3);
+    Serial.print(", ");
+    Serial.print(peerPkt.posZ, 3);
+    Serial.println(")");
     Serial.print("peer_yaw_deg=");
     Serial.println(peerPkt.yawDeg, 2);
     Serial.print("peer_init_yaw_deg=");
@@ -552,15 +631,34 @@ static void printDebug()
 
     Serial.println("-- Relative To Peer --");
     Serial.print("delta_xyz=(");
-    Serial.print(gRel.dx, 3); Serial.print(", ");
-    Serial.print(gRel.dy, 3); Serial.print(", ");
-    Serial.print(gRel.dz, 3); Serial.println(")");
+    Serial.print(gRel.dx, 3);
+    Serial.print(", ");
+    Serial.print(gRel.dy, 3);
+    Serial.print(", ");
+    Serial.print(gRel.dz, 3);
+    Serial.println(")");
     Serial.print("distance_m=");
     Serial.println(gRel.distance, 3);
     Serial.print("bearing_world_deg=");
     Serial.println(gRel.bearingWorldDeg, 2);
     Serial.print("bearing_local_deg=");
     Serial.println(gRel.bearingLocalDeg, 2);
+
+    Serial.print("euler_raw_deg=(roll=");
+    Serial.print(gMotion.rawRoll, 2);
+    Serial.print(", pitch=");
+    Serial.print(gMotion.rawPitch, 2);
+    Serial.print(", yaw=");
+    Serial.print(gMotion.rawYaw, 2);
+    Serial.println(")");
+
+    Serial.print("euler_clamped_deg=(roll=");
+    Serial.print(gMotion.clampRoll, 2);
+    Serial.print(", pitch=");
+    Serial.print(gMotion.clampPitch, 2);
+    Serial.print(", yaw=");
+    Serial.print(gMotion.clampYaw, 2);
+    Serial.println(")");
 
     Serial.println("===========================");
     Serial.println();
@@ -576,13 +674,17 @@ void setup()
     if (!imu_begin())
     {
         Serial.println("imu_begin() failed");
-        while (1) {}
+        while (1)
+        {
+        }
     }
 
     if (!radio.begin())
     {
         Serial.println("radio.begin() failed");
-        while (1) {}
+        while (1)
+        {
+        }
     }
 
     radio.setPALevel(RF24_PA_LOW);

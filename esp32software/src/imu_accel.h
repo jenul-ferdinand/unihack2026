@@ -4,7 +4,9 @@
 #define CLAMP_RADIUS_M 2.0f
 #endif
 
-#define IMU_DEBUG 1
+#define IMU_DEBUG 0
+#define GYRO_DEBUG 1
+#define GYRO_NOISE_THRESH_DPS 30.0f
 
 struct ImuAccelCal
 {
