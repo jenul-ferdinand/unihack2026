@@ -1,8 +1,10 @@
+import 'dotenv/config';
 import { serve } from '@hono/node-server';
 import { swaggerUI } from '@hono/swagger-ui';
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { cors } from 'hono/cors';
 import comms from './routes/comms';
+import { connectDB } from './db';
 
 const app = new OpenAPIHono();
 
@@ -41,6 +43,8 @@ app.get('/ui', swaggerUI({ url: '/doc' }));
 
 const PORT = Number(process.env.PORT) || 3000;
 
-serve({ fetch: app.fetch, port: PORT }, () => {
-  console.log(`Server running on port ${PORT}`);
+connectDB().then(() => {
+  serve({ fetch: app.fetch, port: PORT }, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
 });
