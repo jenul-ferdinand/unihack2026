@@ -51,4 +51,8 @@ export class CommsService {
   startDemo(): Observable<{ run_id: string }> {
     return this.http.post<{ run_id: string }>(`${this.runsBase}/demo`, {});
   }
+
+  deleteRun(id: string): Observable<{ success: boolean }> {
+    return this.http.delete<{ success: boolean }>(`${this.runsBase}/${id}`);
+  }
 }
