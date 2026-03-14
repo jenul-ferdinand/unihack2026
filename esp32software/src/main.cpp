@@ -11,8 +11,8 @@
 #define CSN_PIN 5
 
 // CHANGE THESE PER DEVICE
-#define SELF_ID        2
-#define IS_TIME_MASTER 0
+#define SELF_ID        1
+#define IS_TIME_MASTER 1
 
 #if IS_TIME_MASTER
   #define IS_POLLER 1
@@ -87,6 +87,7 @@ struct MotionState
     bool imuHoldActive = false;
     unsigned long stillSinceMs = 0;
     bool resetDoneThisStillness = false;
+    bool prevHold;
 };
 
 static MotionState gMotion;
@@ -280,30 +281,47 @@ static void maybeLockSharedFrameFromPeer()
 static void updateStationaryHold()
 {
     const bool hold = (gMotion.stationary || gMotion.zupt);
+    const uint32_t now = millis();
 
     imu_setStationary(hold);
     gMotion.imuHoldActive = hold;
 
+    const bool enteredHold = (hold && !gMotion.prevHold);
+    const bool exitedHold  = (!hold && gMotion.prevHold);
+
+    if (enteredHold)
+    {
+        gMotion.stillSinceMs = now;
+        gMotion.resetDoneThisStillness = false;
+
+        // Immediate zero-velocity update on entering stillness
+        // TODO UNDO ZERO imu_zeroVelocity();
+
+        gMotion.clampVelX = 0.0f;
+        gMotion.clampVelY = 0.0f;
+        gMotion.clampVelZ = 0.0f;
+    }
+
     if (hold)
     {
-        if (gMotion.stillSinceMs == 0)
-            gMotion.stillSinceMs = millis();
+        // Keep velocity killed while stationary
+        //TODO UNDO ZERO imu_zeroVelocity();
 
         if (!gMotion.resetDoneThisStillness &&
-            (millis() - gMotion.stillSinceMs >= STILL_RESET_MS))
+            (now - gMotion.stillSinceMs >= STILL_RESET_MS))
         {
-            imu_zeroVelocity();
-            //imu_resetPosition();
+            // One-time cleanup after enough stillness
+            //TODO UNDO ZERO imu_zeroVelocity();
 
-            gMotion.originSet = false;
+            // Lock clamp position where it currently is
+            gMotion.clampPosX = gMotion.rawPosX + gMotion.corrX;
+            gMotion.clampPosY = gMotion.rawPosY + gMotion.corrY;
+            gMotion.clampPosZ = gMotion.rawPosZ + gMotion.corrZ;
 
-            gMotion.corrX = 0.0f;
-            gMotion.corrY = 0.0f;
-            gMotion.corrZ = 0.0f;
-
-            gMotion.clampPosX = 0.0f;
-            gMotion.clampPosY = 0.0f;
-            gMotion.clampPosZ = 0.0f;
+            // Recompute correction so corrected raw position matches held clamp
+            gMotion.corrX = gMotion.clampPosX - gMotion.rawPosX;
+            gMotion.corrY = gMotion.clampPosY - gMotion.rawPosY;
+            gMotion.corrZ = gMotion.clampPosZ - gMotion.rawPosZ;
 
             gMotion.clampVelX = 0.0f;
             gMotion.clampVelY = 0.0f;
@@ -314,11 +332,15 @@ static void updateStationaryHold()
     }
     else
     {
-        gMotion.stillSinceMs = 0;
-        gMotion.resetDoneThisStillness = false;
+        if (exitedHold)
+        {
+            gMotion.stillSinceMs = 0;
+            gMotion.resetDoneThisStillness = false;
+        }
     }
-}
 
+    gMotion.prevHold = hold;
+}
 static void applyClamps()
 {
     const float correctedX = gMotion.rawPosX + gMotion.corrX;
@@ -327,26 +349,20 @@ static void applyClamps()
 
     if (gMotion.stationary || gMotion.zupt)
     {
-        const float heldX = gMotion.clampPosX;
-        const float heldY = gMotion.clampPosY;
-        const float heldZ = gMotion.clampPosZ;
-
-        gMotion.corrX = heldX - gMotion.rawPosX;
-        gMotion.corrY = heldY - gMotion.rawPosY;
-        gMotion.corrZ = heldZ - gMotion.rawPosZ;
-
-        gMotion.clampPosX = heldX;
-        gMotion.clampPosY = heldY;
-        gMotion.clampPosZ = heldZ;
+        // Hold position fixed at last clamped point
+        gMotion.corrX = gMotion.clampPosX - gMotion.rawPosX;
+        gMotion.corrY = gMotion.clampPosY - gMotion.rawPosY;
+        gMotion.corrZ = gMotion.clampPosZ - gMotion.rawPosZ;
 
         gMotion.clampVelX = 0.0f;
         gMotion.clampVelY = 0.0f;
         gMotion.clampVelZ = 0.0f;
 
-        imu_zeroVelocity();
+        //TODO UNDO ZERO imu_zeroVelocity();
     }
     else
     {
+        // During motion, let corrected position evolve
         gMotion.clampPosX = correctedX;
         gMotion.clampPosY = correctedY;
         gMotion.clampPosZ = correctedZ;
