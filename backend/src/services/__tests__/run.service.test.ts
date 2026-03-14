@@ -8,6 +8,7 @@ function createMockRepo() {
     findById: jest.fn(),
     findAll: jest.fn(),
     pushRawPoint: jest.fn(),
+    pushRawPoints: jest.fn(),
     completeRun: jest.fn(),
     closeOrphanedRuns: jest.fn(),
   } as unknown as jest.Mocked<RunRepository>;
@@ -70,21 +71,25 @@ describe('RunService', () => {
 
   describe('addDataPoint', () => {
     it('returns false when no active run', async () => {
-      const result = await service.addDataPoint(makePacket({
+      const packet = makePacket({
         devicePos: { x: 0, y: 0, z: 0 },
         deviceVel: { x: 0, y: 0, z: 0 },
         peerPos: { x: 1, y: 0, z: 0 },
         peerSpeed: 0,
-      }));
+      });
+      const result = await service.addDataPoint({
+        sample_count: 1,
+        samples: [packet],
+      });
 
       expect(result).toBe(false);
-      expect(repo.pushRawPoint).not.toHaveBeenCalled();
+      expect(repo.pushRawPoints).not.toHaveBeenCalled();
     });
 
     it('pushes data when a run is active', async () => {
       repo.create.mockResolvedValue(makeRunDoc() as any);
       repo.closeOrphanedRuns.mockResolvedValue(undefined);
-      repo.pushRawPoint.mockResolvedValue(undefined);
+      repo.pushRawPoints.mockResolvedValue(undefined);
       await service.startRun();
 
       const packet = makePacket({
@@ -94,10 +99,13 @@ describe('RunService', () => {
         peerSpeed: 0.5,
       });
 
-      const result = await service.addDataPoint(packet);
+      const result = await service.addDataPoint({
+        sample_count: 1,
+        samples: [packet],
+      });
 
       expect(result).toBe(true);
-      expect(repo.pushRawPoint).toHaveBeenCalledWith('run-123', packet);
+      expect(repo.pushRawPoints).toHaveBeenCalledWith('run-123', [packet]);
     });
   });
 
@@ -111,7 +119,7 @@ describe('RunService', () => {
 
       repo.create.mockResolvedValue(makeRunDoc() as any);
       repo.closeOrphanedRuns.mockResolvedValue(undefined);
-      repo.pushRawPoint.mockResolvedValue(undefined);
+      repo.pushRawPoints.mockResolvedValue(undefined);
       await service.startRun();
 
       repo.findById.mockResolvedValue(

@@ -1,4 +1,4 @@
-import type { CommsRequest, RunSummary, RunDetailResponse } from '@unihack/types';
+import type { CommsRequest, Packet, RunSummary, RunDetailResponse } from '@unihack/types';
 import { RunRepository } from '../repositories/run.repository';
 import { applyZuptCorrection } from '../processing/zupt';
 import { generateDemoPackets } from '../processing/demo';
@@ -24,7 +24,7 @@ export class RunService {
 
   async addDataPoint(data: CommsRequest): Promise<boolean> {
     if (!this.activeRunId) return false;
-    await this.repo.pushRawPoint(this.activeRunId, data);
+    await this.repo.pushRawPoints(this.activeRunId, data.samples);
     return true;
   }
 
@@ -37,7 +37,7 @@ export class RunService {
       return false;
     }
 
-    const correctedPath = applyZuptCorrection(run.raw_points as CommsRequest[]);
+    const correctedPath = applyZuptCorrection(run.raw_points as Packet[]);
     await this.repo.completeRun(this.activeRunId, correctedPath);
 
     this.activeRunId = null;

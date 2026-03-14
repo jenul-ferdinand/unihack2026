@@ -1,4 +1,4 @@
-import type { CommsRequest, PathPoint, Vector3 } from '@unihack/types';
+import type { Packet, PathPoint, Vector3 } from '@unihack/types';
 
 const STATIONARY_VEL_THRESH = 0.05; // m/s
 const MIN_STILL_SAMPLES = 8;
@@ -81,7 +81,7 @@ function correctPath(positions: Vector3[], velocities: Vector3[]): Vector3[] {
   return corrected;
 }
 
-export function applyZuptCorrection(rawPoints: CommsRequest[]): PathPoint[] {
+export function applyZuptCorrection(rawPoints: Packet[]): PathPoint[] {
   if (rawPoints.length === 0) return [];
 
   // Extract device positions and velocities

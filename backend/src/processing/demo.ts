@@ -1,4 +1,4 @@
-import type { CommsRequest, Vector3 } from '@unihack/types';
+import type { Packet, Vector3 } from '@unihack/types';
 
 const DT = 0.01;
 const SEGMENT_LENGTH = 10;
@@ -100,7 +100,7 @@ function round3(v: Vector3): Vector3 {
   };
 }
 
-function buildPacket(self: SimDevice, peer: SimDevice, tUs: number): CommsRequest {
+function buildPacket(self: SimDevice, peer: SimDevice, tUs: number): Packet {
   const selfPos = round3(self.noisyPos());
   const peerPos = round3(peer.noisyPos());
   const dx = peerPos.x - selfPos.x;
@@ -142,11 +142,11 @@ function buildPacket(self: SimDevice, peer: SimDevice, tUs: number): CommsReques
   };
 }
 
-export function generateDemoPackets(): CommsRequest[] {
+export function generateDemoPackets(): Packet[] {
   const dev1 = new SimDevice(1, { x: 0, y: 0, z: 0 }, 0);
   const dev2 = new SimDevice(2, { x: SEPARATION, y: 0, z: 0 }, 8);
 
-  const packets: CommsRequest[] = [];
+  const packets: Packet[] = [];
   let t = 0;
   const stepsPerSeg = Math.floor(SEGMENT_LENGTH / (SPEED * DT));
 
