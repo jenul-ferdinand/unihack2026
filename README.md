@@ -32,9 +32,11 @@ On the software side, we built the web application early using mocked data so fr
 
 ## Challenges we ran into
 
-One of our biggest challenges was the physical build process itself. We ran into difficulties with 3D printing the casing and ultimately had to rely on a 24/7 same-day printing business in Tarneit, which meant making a roughly one-hour round trip just to collect the enclosures for our two handheld devices. We also spent significant time working through gyroscope and IMU alignment issues so that the motion data would be usable for tracking. On top of that, sourcing parts was difficult early in the hackathon, and we had to travel across multiple electronics stores on the first day just to gather the components needed to get the prototype built. In the end; it was all worth it.
+One of our biggest challenges was the physical build process itself. We ran into difficulties with 3D printing the casing and ultimately had to rely on a 24/7 same-day printing business in Tarneit, which meant making a roughly one-hour round trip just to collect the enclosures for our two handheld devices. We also spent significant time working through gyroscope and IMU alignment issues so that the motion data would be usable for tracking. On top of that, sourcing parts was difficult early in the hackathon, and we had to travel across multiple electronics stores on the first day just to gather the components needed to get the prototype built.
 
 ## Accomplishments that we're proud of
+
+We are especially proud of how well our team used each person’s strengths to move the project forward. By combining hardware, software, mathematics, electronics, and design skills effectively, we were able to build a working system rather than just an isolated prototype. We are also proud that we successfully integrated embedded hardware, a web platform, and a 3D-printed casing into one cohesive product. Just as importantly, every member of the team pushed themselves, contributed at a high level, and learned new skills along the way.
 
 ## What we learned
 
