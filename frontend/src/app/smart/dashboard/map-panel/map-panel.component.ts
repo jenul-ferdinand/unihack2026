@@ -29,7 +29,12 @@ export class MapPanelComponent implements AfterViewInit, OnDestroy {
   private peerPath: THREE.Vector3[] = [];
   private deviceLine!: THREE.Line;
   private peerLine!: THREE.Line;
+  private deviceStartDot!: THREE.Mesh;
+  private deviceEndDot!: THREE.Mesh;
+  private peerStartDot!: THREE.Mesh;
+  private peerEndDot!: THREE.Mesh;
   private readonly GLOBE_RADIUS = 80;
+  private readonly DOT_RADIUS = 1.2;
 
   constructor(private ngZone: NgZone) {}
 
@@ -52,6 +57,8 @@ export class MapPanelComponent implements AfterViewInit, OnDestroy {
     this.peerPath.push(new THREE.Vector3(peer.x, peer.y + r, peer.z));
     this.updateLine(this.deviceLine, this.devicePath);
     this.updateLine(this.peerLine, this.peerPath);
+    this.updateDots(this.deviceStartDot, this.deviceEndDot, this.devicePath);
+    this.updateDots(this.peerStartDot, this.peerEndDot, this.peerPath);
   }
 
   clearPaths(): void {
@@ -59,6 +66,8 @@ export class MapPanelComponent implements AfterViewInit, OnDestroy {
     this.peerPath = [];
     this.updateLine(this.deviceLine, this.devicePath);
     this.updateLine(this.peerLine, this.peerPath);
+    this.updateDots(this.deviceStartDot, this.deviceEndDot, this.devicePath);
+    this.updateDots(this.peerStartDot, this.peerEndDot, this.peerPath);
   }
 
   private cssColor(prop: string): number {
@@ -98,10 +107,19 @@ export class MapPanelComponent implements AfterViewInit, OnDestroy {
     this.scene.add(new THREE.Mesh(globeGeo, globeMat));
 
     // Path lines
-    this.deviceLine = this.createLine(this.cssColor('--accent-device'));
-    this.peerLine = this.createLine(this.cssColor('--accent-peer'));
+    const deviceColor = this.cssColor('--accent-device');
+    const peerColor = this.cssColor('--accent-peer');
+    this.deviceLine = this.createLine(deviceColor);
+    this.peerLine = this.createLine(peerColor);
     this.scene.add(this.deviceLine);
     this.scene.add(this.peerLine);
+
+    // Endpoint dots
+    this.deviceStartDot = this.createDot(deviceColor);
+    this.deviceEndDot = this.createDot(deviceColor);
+    this.peerStartDot = this.createDot(peerColor);
+    this.peerEndDot = this.createDot(peerColor);
+    this.scene.add(this.deviceStartDot, this.deviceEndDot, this.peerStartDot, this.peerEndDot);
 
     // Resize handling
     this.resizeObserver = new ResizeObserver(() => this.onResize(container));
@@ -113,6 +131,26 @@ export class MapPanelComponent implements AfterViewInit, OnDestroy {
     const geo = new THREE.BufferGeometry();
     const mat = new THREE.LineBasicMaterial({ color });
     return new THREE.Line(geo, mat);
+  }
+
+  private createDot(color: number): THREE.Mesh {
+    const geo = new THREE.SphereGeometry(this.DOT_RADIUS, 16, 16);
+    const mat = new THREE.MeshBasicMaterial({ color });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.visible = false;
+    return mesh;
+  }
+
+  private updateDots(startDot: THREE.Mesh, endDot: THREE.Mesh, points: THREE.Vector3[]): void {
+    if (points.length === 0) {
+      startDot.visible = false;
+      endDot.visible = false;
+      return;
+    }
+    startDot.position.copy(points[0]);
+    startDot.visible = true;
+    endDot.position.copy(points[points.length - 1]);
+    endDot.visible = true;
   }
 
   private updateLine(line: THREE.Line, points: THREE.Vector3[]): void {
