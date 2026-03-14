@@ -116,6 +116,29 @@ comms.openapi(
 
 comms.openapi(
   createRoute({
+    method: 'post',
+    path: '/demo',
+    tags: ['Comms'],
+    responses: {
+      200: {
+        content: {
+          'application/json': {
+            schema: CommsStartResponseSchema,
+          },
+        },
+        description: 'Demo run created',
+      },
+    },
+  }),
+  async (c) => {
+    const runId = await runService.runDemo();
+    console.log('Demo run created, run_id:', runId);
+    return c.json({ run_id: runId }, 200);
+  },
+);
+
+comms.openapi(
+  createRoute({
     method: 'get',
     path: '/runs',
     tags: ['Runs'],
