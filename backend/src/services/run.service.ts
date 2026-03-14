@@ -2,47 +2,49 @@ import type { CommsRequest, RunSummary, RunDetailResponse } from '@unihack/types
 import { RunRepository } from '../repositories/run.repository';
 import { applyZuptCorrection } from '../processing/zupt';
 
-const repo = new RunRepository();
-
-let activeRunId: string | null = null;
-
 export class RunService {
+  private activeRunId: string | null = null;
+  private repo: RunRepository;
+
+  constructor(repo?: RunRepository) {
+    this.repo = repo ?? new RunRepository();
+  }
+
   async startRun(): Promise<string> {
-    // Auto-close any active run
-    if (activeRunId) {
+    if (this.activeRunId) {
       await this.stopRun();
     }
-    await repo.closeOrphanedRuns();
+    await this.repo.closeOrphanedRuns();
 
-    const run = await repo.create();
-    activeRunId = run._id.toString();
-    return activeRunId;
+    const run = await this.repo.create();
+    this.activeRunId = run._id.toString();
+    return this.activeRunId;
   }
 
   async addDataPoint(data: CommsRequest): Promise<boolean> {
-    if (!activeRunId) return false;
-    await repo.pushRawPoint(activeRunId, data);
+    if (!this.activeRunId) return false;
+    await this.repo.pushRawPoint(this.activeRunId, data);
     return true;
   }
 
   async stopRun(): Promise<boolean> {
-    if (!activeRunId) return false;
+    if (!this.activeRunId) return false;
 
-    const run = await repo.findById(activeRunId);
+    const run = await this.repo.findById(this.activeRunId);
     if (!run || run.status !== 'active') {
-      activeRunId = null;
+      this.activeRunId = null;
       return false;
     }
 
     const correctedPath = applyZuptCorrection(run.raw_points as CommsRequest[]);
-    await repo.completeRun(activeRunId, correctedPath);
+    await this.repo.completeRun(this.activeRunId, correctedPath);
 
-    activeRunId = null;
+    this.activeRunId = null;
     return true;
   }
 
   async listRuns(): Promise<RunSummary[]> {
-    const runs = await repo.findAll();
+    const runs = await this.repo.findAll();
     return runs.map((r) => ({
       run_id: r._id.toString(),
       status: r.status,
@@ -53,7 +55,7 @@ export class RunService {
   }
 
   async getRunDetail(id: string): Promise<RunDetailResponse | null> {
-    const run = await repo.findById(id);
+    const run = await this.repo.findById(id);
     if (!run) return null;
 
     return {
