@@ -1,6 +1,7 @@
 import type { CommsRequest, RunSummary, RunDetailResponse } from '@unihack/types';
 import { RunRepository } from '../repositories/run.repository';
 import { applyZuptCorrection } from '../processing/zupt';
+import { generateDemoPackets } from '../processing/demo';
 
 export class RunService {
   private activeRunId: string | null = null;
@@ -52,6 +53,14 @@ export class RunService {
       stopped_at: r.stopped_at ? r.stopped_at.toISOString() : null,
       point_count: r.path.length,
     }));
+  }
+
+  async runDemo(): Promise<string> {
+    const runId = await this.startRun();
+    const packets = generateDemoPackets();
+    await this.repo.pushRawPoints(runId, packets);
+    await this.stopRun();
+    return runId;
   }
 
   async getRunDetail(id: string): Promise<RunDetailResponse | null> {
