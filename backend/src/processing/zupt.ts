@@ -1,24 +1,18 @@
-import type { CommsRequest, PathPoint } from '@unihack/types';
+import type { CommsRequest, PathPoint, Vector3 } from '@unihack/types';
 
 const STATIONARY_VEL_THRESH = 0.05; // m/s
 const MIN_STILL_SAMPLES = 8;
 
-interface Vec3 {
-  x: number;
-  y: number;
-  z: number;
-}
-
 interface Anchor {
   index: number;
-  pos: Vec3;
+  pos: Vector3;
 }
 
-function velMagnitude(v: Vec3): number {
+function velMagnitude(v: Vector3): number {
   return Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
 }
 
-function findAnchors(positions: Vec3[], velocities: Vec3[]): Anchor[] {
+function findAnchors(positions: Vector3[], velocities: Vector3[]): Anchor[] {
   const anchors: Anchor[] = [];
   let stillCount = 0;
   let sumX = 0,
@@ -56,7 +50,7 @@ function findAnchors(positions: Vec3[], velocities: Vec3[]): Anchor[] {
   return anchors;
 }
 
-function correctPath(positions: Vec3[], velocities: Vec3[]): Vec3[] {
+function correctPath(positions: Vector3[], velocities: Vector3[]): Vector3[] {
   const anchors = findAnchors(positions, velocities);
 
   if (anchors.length < 2) {
