@@ -6,7 +6,11 @@ Antrum was inspired by a simple goal: helping protect people in high-risk underg
 
 ## What it does
 
-
+1. Pair both devices before going into cave.
+2. Strap it on to your leg, then go caving.
+3. If you get lost, use the LED indicators to find where your caving partner is.
+4. If you want to know the way back to the start, switch modes.
+5. Once you surface; exploration data is sent to the cloud, then you can visualise both your paths on the webapp (Altrum DASH).
 
 ## How we built it
 
