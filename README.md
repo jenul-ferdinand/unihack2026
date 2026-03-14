@@ -1,3 +1,5 @@
+# Antrum MK 1
+
 ## Inspiration
 
 Antrum was inspired by a simple goal: helping protect people in high-risk underground environments before a rescue ever becomes necessary. We wanted to support cave explorers and miners who can become disoriented, separated, or trapped in places where visibility is low, communication is limited, and every wrong turn increases danger. The story of the Thai youth soccer team trapped in a cave for an extended period was a major point of inspiration for us. Their rescue was extraordinary, but it also showed how devastating it can be when people lose their bearings in an environment that is difficult to navigate and even harder to search. With Antrum, we wanted to build something preventative: a device that helps users keep track of their partner’s location in the cave and switch to a mode that guides them back toward the cave entrance from the point where recording began.
