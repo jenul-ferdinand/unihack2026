@@ -39,4 +39,14 @@
     color: $orange;
     background: rgba($orange, 0.1);
   }
+
+  &:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+
+    &:hover {
+      color: $text-muted;
+      background: none;
+    }
+  }
 }

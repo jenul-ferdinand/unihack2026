@@ -18,6 +18,8 @@
     <button
       class="nav-tab"
       [class.active]="activeTab === 'info'"
+      [class.disabled]="!hasSelectedRun"
+      [disabled]="!hasSelectedRun"
       (click)="selectTab('info')"
     >
       Info

@@ -10,9 +10,11 @@ export type NavTab = 'runs' | 'info' | 'pairing';
 })
 export class NavbarComponent {
   @Input() activeTab: NavTab = 'pairing';
+  @Input() hasSelectedRun = false;
   @Output() tabChanged = new EventEmitter<NavTab>();
 
   selectTab(tab: NavTab): void {
+    if (tab === 'info' && !this.hasSelectedRun) return;
     this.tabChanged.emit(tab);
   }
 }
