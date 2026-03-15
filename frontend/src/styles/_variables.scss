@@ -9,3 +9,21 @@ $orange: #ff6644;
 $accent-device: #00ccff;
 $accent-peer: #ff6644;
 $globe-wire: rgb(116, 116, 116);
+
+@mixin thin-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: $border transparent;
+
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: $border;
+    border-radius: 2px;
+  }
+}

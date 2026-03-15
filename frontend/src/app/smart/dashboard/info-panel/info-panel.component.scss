@@ -11,6 +11,7 @@
   background: $bg-surface;
   border-right: 1px solid $border;
   overflow-y: auto;
+  @include thin-scrollbar;
 }
 
 .header {
