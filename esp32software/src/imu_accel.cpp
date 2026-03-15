@@ -4,6 +4,15 @@
 #include <math.h>
 #include "quarternian.h"
 
+/*
+ * This file intentionally implements a conservative translational estimator.
+ *
+ * Consumer-grade IMU double integration drifts quickly, so the code only
+ * integrates when acceleration/gyro thresholds indicate a clear motion burst,
+ * damps velocity hard when motion becomes ambiguous, and clamps the resulting
+ * position to a small radius around the origin.
+ */
+
 static constexpr float G_MSS = 9.80665f;
 static constexpr float ACC_DEADBAND_MSS = 0.25f;
 
@@ -13,7 +22,7 @@ static constexpr float BURST_GYRO_THRESH_DPS = 12.0f;
 static constexpr float EXIT_BURST_ACC_THRESH_MSS = 0.35f;
 static constexpr float EXIT_BURST_GYRO_THRESH_DPS = 3.0f;
 
-// Per your request, treat motion under 1 m/s as noise.
+// Very small speeds are treated as accumulated integration noise.
 static constexpr float MIN_VALID_SPEED_MPS = 0.01f;
 static constexpr float MAX_VALID_SPEED_MPS = 100.0f;
 
@@ -59,6 +68,7 @@ void imuAccelProcess(ImuMotionState &motion,
                      float dt,
                      bool stationaryHold)
 {
+    // 1. Remove gravity in the body frame and rotate into the world frame.
     float gravityBody[3];
     imuMathComputeGravityBodyFromQuat(quat, gravityBody);
 
@@ -73,14 +83,14 @@ void imuAccelProcess(ImuMotionState &motion,
     imuMathRotateVectorByQuat(quat, motion.linBody, motion.linWorld);
     imuMathApplyDeadband(motion.linWorld, ACC_DEADBAND_MSS);
 
-    // Convert quaternion to Euler for debug
+    // Euler values are debug-only here.
     float rollDeg = 0.0f;
     float pitchDeg = 0.0f;
     float yawDeg = 0.0f;
     imuMathQuatToEulerDeg(quat, rollDeg, pitchDeg, yawDeg);
     rollDeg *= 4; // Cater for imu resistance
 
-    // Clamp gyro rates below threshold as noise
+    // Clamp small gyro values to zero before using them in the burst detector.
     const float gyroRaw[3] = {rawGx, rawGy, rawGz};
     float gyroClamped[3] = {rawGx, rawGy, rawGz};
 
@@ -195,6 +205,7 @@ void imuAccelProcess(ImuMotionState &motion,
     */
 #endif
 
+    // 2. Decide whether the current frame belongs to a "real movement burst".
     if (!motion.motionBurst)
     {
         if (linAccNorm > BURST_ACC_THRESH_MSS || gyroNormClamped > BURST_GYRO_THRESH_DPS)
@@ -214,6 +225,8 @@ void imuAccelProcess(ImuMotionState &motion,
     Serial.println(stationaryHold ? "true" : "false");
 #endif
 
+    // 3. If the sketch has latched a stationary hold, force velocity to zero
+    // and skip any further translation updates.
     if (stationaryHold)
     {
         motion.velWorld[0] = 0.0f;
@@ -233,6 +246,8 @@ void imuAccelProcess(ImuMotionState &motion,
         return;
     }
 
+    // 4. Outside a burst, aggressively damp residual velocity instead of
+    // trusting the integrated acceleration.
     if (!motion.motionBurst)
     {
         motion.linWorld[0] = 0.0f;
@@ -263,6 +278,7 @@ void imuAccelProcess(ImuMotionState &motion,
         return;
     }
 
+    // 5. Integrate only during active bursts.
     for (int i = 0; i < 3; ++i)
         motion.velWorld[i] += motion.linWorld[i] * dt;
 
@@ -307,6 +323,8 @@ void imuAccelProcess(ImuMotionState &motion,
         return;
     }
 
+    // 6. Integrate position and then clamp it to a bounded radius so this
+    // helper cannot wander arbitrarily far from the origin.
     motion.posWorld[0] += motion.velWorld[0] * dt;
     motion.posWorld[1] += motion.velWorld[1] * dt;
     motion.posWorld[2] += motion.velWorld[2] * dt;

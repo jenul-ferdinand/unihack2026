@@ -10,6 +10,12 @@
 #define GYRO_DEBUG (DEBUG_SERIAL_ENABLE && DEBUG_GYRO_CLAMP)
 #define GYRO_NOISE_THRESH_DPS 30.0f
 
+// Translational-motion helper used underneath imu.cpp.
+//
+// This layer removes gravity, rotates body acceleration into world space,
+// integrates velocity/position during obvious motion bursts, and aggressively
+// damps the estimate when motion confidence is low.
+
 struct ImuAccelCal
 {
     float gyroBiasDps[3];
@@ -22,6 +28,8 @@ struct ImuMotionState
     float linWorld[3];
     float velWorld[3];
     float posWorld[3];
+
+    // Hysteretic gate that decides whether translational integration is allowed.
     bool motionBurst;
 
     float travelMeters;   // total path length since reset
@@ -43,5 +51,6 @@ void imuAccelProcess(ImuMotionState &motion,
                      float dt,
                      bool stationaryHold);
 
+// Maintenance helpers used by the sketch's hold logic.
 void imuAccelZeroVelocity(ImuMotionState &motion);
 void imuAccelResetPosition(ImuMotionState &motion);

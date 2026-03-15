@@ -1,6 +1,9 @@
 #include "time_sync.h"
 #include <math.h>
 
+// A deliberately lightweight synchronizer: enough to align timestamps between
+// two ESP32 nodes, but not intended to behave like a full NTP/PTP stack.
+
 static double clampDouble(double x, double lo, double hi)
 {
     if (x < lo) return lo;
@@ -46,17 +49,18 @@ void timeSyncObserveMaster(TimeSyncState &ts, uint32_t localRxUs, uint32_t maste
     {
         double observedRate = (double)dMaster / (double)dLocal;
 
-        // Keep this sane. Real crystal drift should be tiny.
+        // Keep this sane. Real crystal drift should be tiny and slow.
         observedRate = clampDouble(observedRate, 0.9995, 1.0005);
 
-        // Slow low-pass on drift estimate
+        // Slow low-pass on drift estimate.
         const double rateAlpha = 0.02;
         ts.rate = (1.0 - rateAlpha) * ts.rate + rateAlpha * observedRate;
     }
 
     double observedOffset = (double)masterUs - ts.rate * (double)localRxUs;
 
-    // Slightly faster low-pass on offset
+    // Slightly faster low-pass on offset because transport delay shifts offset
+    // more readily than it shifts long-term frequency error.
     const double offsetAlpha = 0.05;
     ts.offset = (1.0 - offsetAlpha) * ts.offset + offsetAlpha * observedOffset;
 

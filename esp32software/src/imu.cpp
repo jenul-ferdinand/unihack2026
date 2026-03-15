@@ -14,6 +14,15 @@
 #include "imu_accel.h"
 #include "imu_mag.h"
 
+/*
+ * IMU pipeline:
+ * - read calibrated accel/gyro/mag samples from the ICM-20948
+ * - keep a Madgwick orientation estimate updated unless motion is quiet enough
+ *   that holding the previous orientation is less noisy
+ * - feed the quaternion and raw sensors into imu_accel.cpp for the simpler
+ *   translational estimate used elsewhere in the sketch
+ */
+
 static Adafruit_ICM20948 icm;
 static Madgwick filter;
 
@@ -31,6 +40,8 @@ static constexpr float ROTATION_HOLD_ENTER_DPS = 1.5f;
 static constexpr float ROTATION_HOLD_EXIT_DPS = 2.5f;
 static constexpr int ROTATION_HOLD_SAMPLES_TO_LATCH = 4;
 static constexpr int ROTATION_HOLD_SAMPLES_TO_RELEASE = 2;
+static constexpr float ORIENTATION_RATE_FLOOR_DPS = 10.0f;
+static constexpr float ORIENTATION_RATE_SCALE = 5.0f;
 
 // Raw readings
 static float raw_ax_mss = 0.0f;
@@ -40,6 +51,9 @@ static float raw_az_mss = G_MSS;
 static float raw_gx_dps = 0.0f;
 static float raw_gy_dps = 0.0f;
 static float raw_gz_dps = 0.0f;
+static float filtered_gx_dps = 0.0f;
+static float filtered_gy_dps = 0.0f;
+static float filtered_gz_dps = 0.0f;
 
 static float raw_mx_uT = 0.0f;
 static float raw_my_uT = 0.0f;
@@ -54,9 +68,45 @@ static float yaw_deg = 0.0f;
 static ImuAccelCal gAccelCal;
 static ImuMotionState gMotion;
 static ImuMagCal gMagCal;
+static bool g_orientationValid = false;
+
+static float wrapAngleDeg(float deg)
+{
+    while (deg > 180.0f)
+        deg -= 360.0f;
+    while (deg < -180.0f)
+        deg += 360.0f;
+    return deg;
+}
+
+static bool orientationStepIsPlausible(float nextRollDeg,
+                                       float nextPitchDeg,
+                                       float nextYawDeg,
+                                       float dt,
+                                       bool stationaryLike)
+{
+    if (!g_orientationValid || dt <= 0.0f || stationaryLike)
+        return true;
+
+    const float rollDeltaDeg = fabsf(wrapAngleDeg(nextRollDeg - roll_deg));
+    const float pitchDeltaDeg = fabsf(wrapAngleDeg(nextPitchDeg - pitch_deg));
+    const float yawDeltaDeg = fabsf(wrapAngleDeg(nextYawDeg - yaw_deg));
+
+    const float allowedRollDeltaDeg = fmaxf(ORIENTATION_RATE_FLOOR_DPS * dt,
+                                            fabsf(filtered_gx_dps) * dt * ORIENTATION_RATE_SCALE);
+    const float allowedPitchDeltaDeg = fmaxf(ORIENTATION_RATE_FLOOR_DPS * dt,
+                                             fabsf(filtered_gy_dps) * dt * ORIENTATION_RATE_SCALE);
+    const float allowedYawDeltaDeg = fmaxf(ORIENTATION_RATE_FLOOR_DPS * dt,
+                                           fabsf(filtered_gz_dps) * dt * ORIENTATION_RATE_SCALE);
+
+    return rollDeltaDeg <= allowedRollDeltaDeg &&
+           pitchDeltaDeg <= allowedPitchDeltaDeg &&
+           yawDeltaDeg <= allowedYawDeltaDeg;
+}
 
 static bool readRawIMU()
 {
+    // Read one sensor frame and apply the currently known calibration offsets.
     sensors_event_t accel_event;
     sensors_event_t gyro_event;
     sensors_event_t mag_event;
@@ -83,6 +133,7 @@ static bool readRawIMU()
 
 static void calibrateAccelGyro10s()
 {
+    // Startup calibration assumes the device is held still for 10 seconds.
     const unsigned long start = millis();
     float sumGx = 0, sumGy = 0, sumGz = 0;
     float sumAx = 0, sumAy = 0, sumAz = 0;
@@ -117,6 +168,7 @@ static void calibrateAccelGyro10s()
 
 static void calibrateMag10s()
 {
+    // Collect extrema while the user rotates the device through many headings.
     const unsigned long start = millis();
     imuMagInit(gMagCal);
 
@@ -191,13 +243,18 @@ void imu_update()
     if (dt <= 0.0f || dt > 0.1f)
         dt = 0.01f;
 
+    filtered_gx_dps = raw_gx_dps;
+    filtered_gy_dps = raw_gy_dps;
+    filtered_gz_dps = raw_gz_dps;
+
     const float ax_g = raw_ax_mss / G_MSS;
     const float ay_g = raw_ay_mss / G_MSS;
     const float az_g = raw_az_mss / G_MSS;
     const float gyro_mag_dps = sqrtf(
-        raw_gx_dps * raw_gx_dps +
-        raw_gy_dps * raw_gy_dps +
-        raw_gz_dps * raw_gz_dps);
+        filtered_gx_dps * filtered_gx_dps +
+        filtered_gy_dps * filtered_gy_dps +
+        filtered_gz_dps * filtered_gz_dps);
+    const bool stationaryLike = g_stationary_hold || g_rotation_hold;
 
     if (gyro_mag_dps < ROTATION_HOLD_ENTER_DPS)
     {
@@ -215,24 +272,44 @@ void imu_update()
     else if (g_rotation_move_count >= ROTATION_HOLD_SAMPLES_TO_RELEASE)
         g_rotation_hold = false;
 
-    if (!(g_stationary_hold || g_rotation_hold))
+    // Freeze the Madgwick update while translation/rotation is quiet. This is a
+    // pragmatic drift reduction step rather than a physically perfect model.
+    if (!stationaryLike)
     {
-        filter.update(raw_gx_dps, raw_gy_dps, raw_gz_dps,
+        filter.update(filtered_gx_dps, filtered_gy_dps, filtered_gz_dps,
                       ax_g, ay_g, az_g,
                       raw_mx_uT, raw_my_uT, raw_mz_uT);
 
-        quat[0] = filter.q0;
-        quat[1] = filter.q1;
-        quat[2] = filter.q2;
-        quat[3] = filter.q3;
+        float nextQuat[4] = {filter.q0, filter.q1, filter.q2, filter.q3};
+        float nextRollDeg = 0.0f;
+        float nextPitchDeg = 0.0f;
+        float nextYawDeg = 0.0f;
+        imuMathQuatToEulerDeg(nextQuat, nextRollDeg, nextPitchDeg, nextYawDeg);
 
-        imuMathQuatToEulerDeg(quat, roll_deg, pitch_deg, yaw_deg);
+        if (orientationStepIsPlausible(nextRollDeg, nextPitchDeg, nextYawDeg, dt, stationaryLike))
+        {
+            quat[0] = nextQuat[0];
+            quat[1] = nextQuat[1];
+            quat[2] = nextQuat[2];
+            quat[3] = nextQuat[3];
+            roll_deg = nextRollDeg;
+            pitch_deg = nextPitchDeg;
+            yaw_deg = nextYawDeg;
+            g_orientationValid = true;
+        }
+        else
+        {
+            filter.q0 = quat[0];
+            filter.q1 = quat[1];
+            filter.q2 = quat[2];
+            filter.q3 = quat[3];
+        }
     }
 
     imuAccelProcess(gMotion,
                     quat,
                     raw_ax_mss, raw_ay_mss, raw_az_mss,
-                    raw_gx_dps, raw_gy_dps, raw_gz_dps,
+                    filtered_gx_dps, filtered_gy_dps, filtered_gz_dps,
                     dt,
                     g_stationary_hold);
 }
@@ -246,9 +323,9 @@ void imu_getRawAccel(float &ax, float &ay, float &az)
 
 void imu_getRawGyro(float &gx, float &gy, float &gz)
 {
-    gx = raw_gx_dps;
-    gy = raw_gy_dps;
-    gz = raw_gz_dps;
+    gx = filtered_gx_dps;
+    gy = filtered_gy_dps;
+    gz = filtered_gz_dps;
 }
 
 void imu_getRawMag(float &mx, float &my, float &mz)
@@ -306,7 +383,6 @@ void imu_setStationary(bool still)
     g_stationary_hold = still;
     if (still)
         imuAccelZeroVelocity(gMotion);
-        //imu_zeroGyroRate();
 }
 
 void imu_zeroVelocity()
@@ -316,14 +392,20 @@ void imu_zeroVelocity()
 
 void imu_zeroGyroRate()
 {
-    // Reset pitch (Y) and yaw (Z) bias only
-    gAccelCal.gyroBiasDps[1] += raw_gy_dps;
-    gAccelCal.gyroBiasDps[2] += raw_gz_dps;
+    // Only trim roll/yaw bias. Pitch is left alone because it is later used as
+    // part of the facing quantization logic.
+    gAccelCal.gyroBiasDps[0] += filtered_gx_dps;
+    gAccelCal.gyroBiasDps[1] += filtered_gy_dps;
+    gAccelCal.gyroBiasDps[2] += filtered_gz_dps;
 
+    raw_gx_dps = 0.0f;
     raw_gy_dps = 0.0f;
     raw_gz_dps = 0.0f;
+    filtered_gx_dps = 0.0f;
+    filtered_gy_dps = 0.0f;
+    filtered_gz_dps = 0.0f;
 
-    // Roll (X axis) is intentionally left unchanged
+    // Pitch (Y axis) is intentionally left unchanged.
 }
 
 void imu_resetPosition()

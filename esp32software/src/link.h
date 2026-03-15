@@ -3,6 +3,12 @@
 #include <Arduino.h>
 #include <RF24.h>
 
+// Lightweight transport on top of nRF24 auto-ack payloads.
+//
+// The poller transmits its state as the main payload and receives the peer's
+// state in the auto-ack payload. The responder mirrors that pattern by always
+// queuing its current state as the next ack payload.
+
 enum LinkRole
 {
     LINK_ROLE_POLLER,
@@ -44,18 +50,7 @@ inline uint8_t linkUnpackPeerConfidence(uint16_t packedSeq)
     return static_cast<uint8_t>((packedSeq >> 14) & 0x3u);
 }
 
-// nRF24 max payload is 32 bytes.
-// Layout:
-//  1  deviceId
-//  1  flags
-//  2  seq (11-bit counter + 3-bit peer direction + 2-bit confidence)
-//  4  timeUs
-// 12  posX,posY,posZ
-//  4  yawDeg
-//  4  initYawDeg
-//  4  speedMps
-// ----------------
-// 32 bytes total
+// Compact state packet sized to fit exactly in one nRF24 payload.
 struct __attribute__((packed)) StatePacket
 {
     uint8_t  deviceId;
@@ -76,5 +71,9 @@ static_assert(sizeof(StatePacket) == 32, "StatePacket must be 32 bytes");
 
 void linkBegin(RF24 &radio, LinkRole role, uint8_t selfId);
 void linkSetLocalState(const StatePacket &pkt);
+
+// Poller-side exchange: send local state and read the responder's ack payload.
 bool linkExchange(RF24 &radio, StatePacket &peerPkt);
+
+// Responder-side update: consume a poll packet and queue the next ack payload.
 bool linkPollResponder(RF24 &radio, StatePacket &rxPkt);

@@ -2,6 +2,10 @@
 #include <string.h>
 #include "debug_config.h"
 
+// Two-node pairing handshake built on a shared discovery address and ack
+// payloads. The initiator searches, the responder offers, and both sides then
+// switch to their dedicated node addresses.
+
 static const byte DISCOVERY_ADDR[6] = "PAIR0";
 
 static const byte NODE1_ADDR[6] = "NODE1";

@@ -1,6 +1,8 @@
 #include "link.h"
 #include <string.h>
 
+// The project currently assumes exactly two nodes with fixed radio addresses.
+
 static const byte ADDR_NODE1[6] = "NODE1";
 static const byte ADDR_NODE2[6] = "NODE2";
 
@@ -21,6 +23,9 @@ static const byte *peerAddr()
 
 void linkBegin(RF24 &radio, LinkRole role, uint8_t selfId)
 {
+    // Configure the radio for a simple request/response exchange driven by the
+    // poller. Dynamic payloads plus ack payloads let both sides transfer their
+    // state in one transaction.
     gRole = role;
     gSelfId = selfId;
     gHaveLocalState = false;
@@ -59,6 +64,8 @@ void linkSetLocalState(const StatePacket &pkt)
 
 bool linkExchange(RF24 &radio, StatePacket &peerPkt)
 {
+    // The poller explicitly transmits and then immediately inspects the ack
+    // payload prepared by the responder.
     if (gRole != LINK_ROLE_POLLER || !gHaveLocalState)
         return false;
 
@@ -84,6 +91,8 @@ bool linkExchange(RF24 &radio, StatePacket &peerPkt)
 
 bool linkPollResponder(RF24 &radio, StatePacket &rxPkt)
 {
+    // The responder sits in listening mode and refreshes the next ack payload
+    // every time a valid poll is received.
     if (gRole != LINK_ROLE_RESPONDER)
         return false;
 

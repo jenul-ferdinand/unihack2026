@@ -14,6 +14,23 @@
 #include "dead_reckoning.h"
 #include "debug_config.h"
 
+/*
+ * Main firmware sketch for the handheld ESP32 node.
+ *
+ * Runtime flow:
+ * 1. Read and fuse IMU data.
+ * 2. Detect stationary / ZUPT conditions and clamp drift while still.
+ * 3. Update dead-reckoned position and heading.
+ * 4. Exchange state with the peer device over nRF24.
+ * 5. Derive relative direction to the peer and optionally correct local drift.
+ * 6. Persist telemetry locally and upload it in batches when WiFi is available.
+ *
+ * Device role is compile-time configurable:
+ * - time master / poller: drives radio exchanges and defines the shared frame.
+ * - time slave / responder: answers polls, locks to the master's clock, and
+ *   aligns its local frame to the master's initial yaw.
+ */
+
 #define CE_PIN 4
 #define CSN_PIN 5
 
@@ -43,6 +60,7 @@ static const float STATIONARY_GYRO_DPS = 2.0f;
 static const float STATIONARY_ACC_ERR_MS2 = 0.35f;
 static const float ZUPT_GYRO_DPS = 1.2f;
 static const float ZUPT_ACC_ERR_MS2 = 0.20f;
+static const float MAX_PITCH_STEP_DEG = 10.0f;
 
 static const int STILL_SAMPLES_TO_LATCH = 8;
 static const int MOVE_SAMPLES_TO_RELEASE = 4;
@@ -57,6 +75,14 @@ static bool gSharedFrameLocked = false;
 static float gSharedYawOffsetDeg = 0.0f;
 
 // ---------- Local estimator/debug state ----------
+/*
+ * Scratch state owned by the sketch layer.
+ *
+ * The IMU module exposes raw and fused measurements, but the sketch needs an
+ * additional layer of state to apply stationary clamping, remember the boot
+ * origin, and store debug-friendly values that are later serialized to the
+ * radio packet and telemetry log.
+ */
 struct MotionState
 {
     // Raw sensor/debug
@@ -101,6 +127,8 @@ struct MotionState
     float rawRoll = 0, rawPitch = 0, rawYaw = 0;
     float clampRoll = 0, clampPitch = 0, clampYaw = 0;
     float corrRoll = 0, corrPitch = 0, corrYaw = 0;
+    float acceptedRawPitch = 0;
+    bool acceptedRawPitchValid = false;
 
     float orientOffRoll = 0, orientOffPitch = 0, orientOffYaw = 0;
 
@@ -144,19 +172,23 @@ struct __attribute__((packed)) TelemetryVec3
 
 struct __attribute__((packed)) TelemetryLogRecord
 {
+    // Local wall-clock in milliseconds when the sample was written to SPIFFS.
     uint32_t loggedAtMs;
 
+    // Shared-frame status so backend traces can be interpreted correctly.
     uint8_t initialYawLocked;
     float initialYawDeg;
     uint8_t sharedFrameLocked;
     float sharedYawOffsetDeg;
 
+    // Local motion estimate before and after clamp correction.
     TelemetryVec3 rawPos;
     TelemetryVec3 rawVel;
     TelemetryVec3 corrOffset;
     TelemetryVec3 clampedPos;
     TelemetryVec3 clampedVel;
 
+    // Last peer packet that informed the relative-direction estimate.
     uint8_t peerId;
     uint32_t peerTimeUs;
     TelemetryVec3 peerPos;
@@ -164,6 +196,7 @@ struct __attribute__((packed)) TelemetryLogRecord
     float peerInitYawDeg;
     float peerSpeedMps;
 
+    // Final relative position/bearing view derived from both devices.
     TelemetryVec3 deltaXyz;
     float distanceM;
     float bearingWorldDeg;
@@ -233,6 +266,8 @@ static TelemetryVec3 makeVec3(float x, float y, float z)
 
 static TelemetryLogRecord captureTelemetryRecord()
 {
+    // Capture a self-contained snapshot so logging remains independent from
+    // later in-loop updates.
     TelemetryLogRecord record{};
     record.loggedAtMs = millis();
 
@@ -264,6 +299,7 @@ static TelemetryLogRecord captureTelemetryRecord()
 
 static String telemetryRecordToJson(const TelemetryLogRecord &record)
 {
+    // Build JSON manually to keep heap usage predictable on-device.
     String json;
     json.reserve(700);
 
@@ -322,6 +358,7 @@ static String telemetryRecordToJson(const TelemetryLogRecord &record)
 
 static void trimTelemetryLogIfNeeded()
 {
+    // Keep the log bounded by rewriting only the most recent tail of the file.
     File src = SPIFFS.open(TELEMETRY_LOG_PATH, FILE_READ);
     if (!src)
         return;
@@ -373,6 +410,8 @@ static void appendTelemetryLogRecord(const TelemetryLogRecord &record)
 
 static void discardTelemetryPrefix(size_t bytesToDrop)
 {
+    // Drop records that were acknowledged by the backend while preserving any
+    // unsent tail in the same file.
     File src = SPIFFS.open(TELEMETRY_LOG_PATH, FILE_READ);
     if (!src)
         return;
@@ -483,6 +522,8 @@ static void printQueuedTelemetryStats()
 
 static bool postTelemetryBatch(size_t &sentRecordsOut)
 {
+    // Upload only a small batch at a time so a transient HTTP failure does not
+    // force the whole backlog to be retried in one request.
     sentRecordsOut = 0;
 
     if (!wifiConfigured() || !ensureWifiConnected())
@@ -563,6 +604,8 @@ static bool postTelemetryBatch(size_t &sentRecordsOut)
 
 static void maybeLogTelemetry()
 {
+    // Logging pauses while a send batch is in-flight so the upload code can
+    // reason about a stable file prefix.
     if (gTelemetryPausedForSend)
         return;
 
@@ -577,6 +620,9 @@ static void maybeLogTelemetry()
 
 static void maybeUploadTelemetry()
 {
+    // A two-stage uploader:
+    // - every 10s, check whether a queued log exists and WiFi is reachable;
+    // - once ready, pause new logging and POST batches every 2s until done.
     const unsigned long nowMs = millis();
 
     if (gTelemetryPausedForSend)
@@ -702,13 +748,37 @@ static uint32_t sharedNowUs()
 
 static void captureImuState()
 {
+    // Pull the latest fused IMU values into the sketch-owned state block and
+    // convert the raw IMU position estimate into a boot-relative frame.
     imu_getRawAccel(gMotion.rawAx, gMotion.rawAy, gMotion.rawAz);
     imu_getRawGyro(gMotion.rawGx, gMotion.rawGy, gMotion.rawGz);
     imu_getRawMag(gMotion.rawMx, gMotion.rawMy, gMotion.rawMz);
 
     imu_getLinearAccel(gMotion.linAxB, gMotion.linAyB, gMotion.linAzB);
     imu_getLinearAccelWorld(gMotion.linAxW, gMotion.linAyW, gMotion.linAzW);
-    imu_getEuler(gMotion.rawRoll, gMotion.rawPitch, gMotion.rawYaw);
+
+    float rawRoll = 0.0f;
+    float rawPitch = 0.0f;
+    float rawYaw = 0.0f;
+    imu_getEuler(rawRoll, rawPitch, rawYaw);
+
+    if (gMotion.acceptedRawPitchValid)
+    {
+        const float pitchStepDeg = fabsf(wrapAngleDeg(rawPitch - gMotion.acceptedRawPitch));
+        if (pitchStepDeg > MAX_PITCH_STEP_DEG)
+            rawPitch = gMotion.acceptedRawPitch;
+        else
+            gMotion.acceptedRawPitch = rawPitch;
+    }
+    else
+    {
+        gMotion.acceptedRawPitch = rawPitch;
+        gMotion.acceptedRawPitchValid = true;
+    }
+
+    gMotion.rawRoll = rawRoll;
+    gMotion.rawPitch = rawPitch;
+    gMotion.rawYaw = rawYaw;
 
     float px, py, pz;
     float vx, vy, vz;
@@ -735,6 +805,8 @@ static void captureImuState()
 
 static void detectMotionFlags()
 {
+    // "stationary" is hysteretic and stable enough to latch the hold logic.
+    // "zupt" is a stricter instantaneous test that can zero velocity sooner.
     gMotion.gyroNorm = vecNorm3(gMotion.rawGx, gMotion.rawGy, gMotion.rawGz);
     gMotion.accNorm = vecNorm3(gMotion.rawAx, gMotion.rawAy, gMotion.rawAz);
     gMotion.accErr = fabsf(gMotion.accNorm - G_MS2);
@@ -766,6 +838,8 @@ static void detectMotionFlags()
 
 static void maybeLockInitialYaw()
 {
+    // Once the unit has been still long enough, freeze its first trusted
+    // heading so both devices can agree on a shared world frame.
     if (gInitialYawLocked)
         return;
 
@@ -778,7 +852,7 @@ static void maybeLockInitialYaw()
     if (millis() - gMotion.stillSinceMs < STILL_RESET_MS)
         return;
 
-    gInitialYawDeg = gDeadReckoning.quantizedMoveHeadingDeg;
+    gInitialYawDeg = gDeadReckoning.snappedCompareHeadingDeg;
     gInitialYawLocked = true;
 
 #if IS_TIME_MASTER
@@ -790,6 +864,8 @@ static void maybeLockInitialYaw()
 static void maybeLockSharedFrameFromPeer()
 {
 #if !IS_TIME_MASTER
+    // The responder waits until it has both a local initial yaw and a peer
+    // packet advertising the master's initial yaw before computing the offset.
     if (gSharedFrameLocked)
         return;
 
@@ -807,7 +883,8 @@ static void updateStationaryHold()
 {
     const uint32_t now = millis();
 
-    // Raw request from detectors
+    // Raw request from the stationary/ZUPT detectors. This is later latched so
+    // brief spikes do not immediately release the hold.
     const bool holdRequest = (gMotion.stationary || gMotion.zupt);
 #if DEBUG_SERIAL_ENABLE && DEBUG_CLAMP_HOLD
     Serial.printf("Hold requested: %d\n", holdRequest);
@@ -960,6 +1037,9 @@ static void updateStationaryHold()
 }
 static void applyClamps()
 {
+    // Apply the correction terms built up by updateStationaryHold(). While the
+    // unit is still, position is pinned and orientation is only frozen if the
+    // gyro looks like noise rather than real rotation.
     const float correctedX = gMotion.rawPosX + gMotion.corrX;
     const float correctedY = gMotion.rawPosY + gMotion.corrY;
     const float correctedZ = gMotion.rawPosZ + gMotion.corrZ;
@@ -1088,6 +1168,9 @@ static void applyClamps()
 
 static void fillLocalPacket(StatePacket &pkt)
 {
+    // The radio packet carries the compact shared state used by the peer:
+    // timing, shared-frame pose, heading, speed, and our current opinion of
+    // where the peer is relative to us.
     pkt.deviceId = SELF_ID;
     pkt.flags = buildFlags();
     pkt.seq = linkPackSeq(gSeq++, gDeadPeerView.directionCode, gDeadPeerView.directionConfidence);
@@ -1110,6 +1193,8 @@ static void fillLocalPacket(StatePacket &pkt)
 
 static void computeRelativeDirection()
 {
+    // First derive our own peer view from local + remote positions, then allow
+    // the peer's stronger observation to snap our estimate if warranted.
     deadReckoningComputePeerView(
         gDeadReckoning,
         gSharedFrameLocked,
@@ -1133,8 +1218,20 @@ static void computeRelativeDirection()
         (peerPkt.flags & (1 << 2)) != 0,
         (peerPkt.flags & (1 << 4)) != 0,
         gMotion.stationary,
-        gDeadReckoning.lockedAfterMove,
         gDeadPeerView);
+
+    if (gDeadReckoning.peerTruthApplied)
+    {
+        deadReckoningComputePeerView(
+            gDeadReckoning,
+            gSharedFrameLocked,
+            gSharedYawOffsetDeg,
+            gDeadReckoning.snappedCompareHeadingDeg,
+            peerPkt.posX,
+            peerPkt.posY,
+            peerPkt.posZ,
+            gDeadPeerView);
+    }
 }
 
 static void printDebug()
@@ -1298,8 +1395,8 @@ static void printDebug()
     Serial.println(gDeadReckoning.gyroHeadingDeg, 2);
     Serial.print("quantized_move_heading_deg=");
     Serial.println(gDeadReckoning.quantizedMoveHeadingDeg, 2);
-    Serial.print("snapped_roll_deg=");
-    Serial.println(gDeadReckoning.snappedCompareRollDeg, 2);
+    Serial.print("snapped_pitch_deg=");
+    Serial.println(gDeadReckoning.snappedComparePitchDeg, 2);
     Serial.print("snapped_heading_deg=");
     Serial.println(gDeadReckoning.snappedCompareHeadingDeg, 2);
     Serial.print("snapped_facing=");
@@ -1328,6 +1425,8 @@ static void printDebug()
     Serial.println(peerPkt.deviceId);
     Serial.print("peer_packet_stale=");
     Serial.println(gPeerPacketStale ? "yes" : "no");
+    if (gHavePeerPacket && gPeerPacketStale)
+        Serial.println("peer_position_source=last_known");
     Serial.print("peer_t_us=");
     Serial.println(peerPkt.timeUs);
     Serial.print("peer_seq_counter=");
@@ -1374,6 +1473,11 @@ static void printDebug()
     Serial.println(gDeadPeerView.directionConfidence);
     Serial.print("peer_truth_applied=");
     Serial.println(gDeadReckoning.peerTruthApplied ? "yes" : "no");
+    if (gDeadReckoning.peerTruthApplied)
+    {
+        Serial.print("peer_direction_after_truth=");
+        Serial.println(deadReckoningDirectionName(gDeadPeerView.directionCode));
+    }
 
     Serial.print("euler_raw_deg=(roll=");
     Serial.print(gMotion.rawRoll, 2);
@@ -1400,6 +1504,9 @@ static void printDebug()
 
 void setup()
 {
+    // Bring up storage, sensors, radio, and role-specific link state. Any hard
+    // failure here intentionally halts because the main loop depends on every
+    // subsystem being available.
     Serial.begin(115200);
     delay(1000);
 
@@ -1458,6 +1565,8 @@ void setup()
 
 void loop()
 {
+    // The loop is intentionally staged: sense -> classify -> estimate ->
+    // exchange with peer -> maintain diagnostics/telemetry.
     imu_update();
     captureImuState();
     detectMotionFlags();
@@ -1469,10 +1578,12 @@ void loop()
     drInput.linAccelBodyY = gMotion.linAyB;
     drInput.linAccelBodyZ = gMotion.linAzB;
     drInput.gyroHeadingDeg = gMotion.clampYaw;
-    drInput.compareRollDeg = gMotion.rawRoll;
+    drInput.comparePitchDeg = gMotion.rawPitch;
     drInput.stationary = gMotion.stationary;
     drInput.zupt = gMotion.zupt;
     deadReckoningUpdate(gDeadReckoning, drInput, micros());
+    if (gMotion.stationary || gMotion.zupt)
+        deadReckoningAnchorPosition(gDeadReckoning, gMotion.clampPosX, gMotion.clampPosY, 0.0f);
     maybeLockInitialYaw();
 
     fillLocalPacket(localPkt);
@@ -1523,8 +1634,8 @@ void loop()
         printDebug();
     }
 
-    maybeLogTelemetry();
-    maybeUploadTelemetry();
+    //maybeLogTelemetry();
+    //maybeUploadTelemetry();
 
 #if IS_POLLER
     delay(20);

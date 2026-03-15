@@ -2,28 +2,35 @@
 
 #include <math.h>
 
+/*
+ * This module intentionally favors stability over physical accuracy.
+ *
+ * The firmware only needs a rough, low-drift estimate that can answer
+ * questions like "is the other unit in front of me or to my left?". To achieve
+ * that, heading is quantized to cardinals and speed is derived from the
+ * magnitude of linear acceleration with aggressive damping.
+ */
+
 static constexpr float DEAD_RECKON_ACC_THRESH_MS2 = 0.35f;
 static constexpr float DEAD_RECKON_SPEED_DAMP = 0.82f;
 static constexpr float DEAD_RECKON_MIN_SPEED_MPS = 0.03f;
 static constexpr float DEAD_RECKON_MAX_SPEED_MPS = 4.0f;
 static constexpr float PEER_CLOSE_DISTANCE_M = 1.0f;
 static constexpr float GYRO_HEADING_GAIN = 4.0f;
+static constexpr float MAX_COMPARE_PITCH_STEP_DEG = 10.0f;
 
 struct FacingReference
 {
     const char *name;
-    float rollDeg;
+    float pitchDeg;
     float headingDeg;
 };
 
 static constexpr FacingReference FACING_REFS[] = {
-    {"forward", 1.85f, 0.0f},
-    {"front_right", -7.94f, -45.0f},
-    {"left", -17.73f, 90.0f},
-    {"back_left", -32.13f, 135.0f},
-    {"backward", -46.53f, 180.0f},
-    {"right", 32.50f, -90.0f},
-    {"right", -69.57f, -90.0f},
+    {"forward", 0.0f, 0.0f},
+    {"right", -29.06f, -90.0f},
+    {"backward", -60.0f, 180.0f},
+    {"left", -90.0f, 90.0f},
 };
 
 static float vecNorm3(float x, float y, float z)
@@ -66,14 +73,14 @@ static float quantizeToCardinalDeg(float headingDeg)
     return wrapAngleDeg(snapped);
 }
 
-static const FacingReference &findClosestFacing(float rollDeg)
+static const FacingReference &findClosestFacing(float pitchDeg)
 {
     const FacingReference *best = &FACING_REFS[0];
-    float bestDistance = angleDistanceDeg(rollDeg, best->rollDeg);
+    float bestDistance = fabsf(pitchDeg - best->pitchDeg);
 
     for (unsigned int i = 1; i < sizeof(FACING_REFS) / sizeof(FACING_REFS[0]); ++i)
     {
-        const float distance = angleDistanceDeg(rollDeg, FACING_REFS[i].rollDeg);
+        const float distance = fabsf(pitchDeg - FACING_REFS[i].pitchDeg);
         if (distance < bestDistance)
         {
             best = &FACING_REFS[i];
@@ -132,8 +139,22 @@ void deadReckoningInit(DeadReckoningState &state, uint32_t nowUs)
     state.lastUpdateUs = nowUs;
 }
 
+void deadReckoningAnchorPosition(DeadReckoningState &state, float x, float y, float z)
+{
+    state.posX = x;
+    state.posY = y;
+    state.posZ = z;
+    state.velX = 0.0f;
+    state.velY = 0.0f;
+    state.velZ = 0.0f;
+    state.speedMps = 0.0f;
+    state.stepMeters = 0.0f;
+}
+
 void deadReckoningUpdate(DeadReckoningState &state, const DeadReckoningInput &input, uint32_t nowUs)
 {
+    // Use elapsed time only as a coarse integration step. A bad dt is replaced
+    // with a fixed interval so a clock hiccup does not blow up the estimate.
     float dt = 0.02f;
     if (state.lastUpdateUs != 0)
     {
@@ -146,11 +167,26 @@ void deadReckoningUpdate(DeadReckoningState &state, const DeadReckoningInput &in
     state.accelMss = vecNorm3(input.linAccelBodyX, input.linAccelBodyY, input.linAccelBodyZ);
     state.stepMeters = 0.0f;
     state.gyroHeadingDeg = wrapAngleDeg(input.gyroHeadingDeg * GYRO_HEADING_GAIN);
-    state.quantizedMoveHeadingDeg = quantizeToCardinalDeg(state.gyroHeadingDeg);
-    const FacingReference &facing = findClosestFacing(input.compareRollDeg);
-    state.snappedCompareRollDeg = facing.rollDeg;
-    state.snappedCompareHeadingDeg = facing.headingDeg;
-    state.snappedFacingName = facing.name;
+    // Pitch is used as a posture/facing lookup that is often more stable than
+    // the fused yaw in this project.
+    bool acceptComparePitch = true;
+    if (state.hasAcceptedComparePitch)
+    {
+        const float pitchStepDeg = fabsf(wrapAngleDeg(input.comparePitchDeg - state.lastAcceptedComparePitchDeg));
+        if (pitchStepDeg > MAX_COMPARE_PITCH_STEP_DEG)
+            acceptComparePitch = false;
+    }
+
+    if (acceptComparePitch)
+    {
+        const FacingReference &facing = findClosestFacing(input.comparePitchDeg);
+        state.lastAcceptedComparePitchDeg = input.comparePitchDeg;
+        state.hasAcceptedComparePitch = true;
+        state.snappedComparePitchDeg = facing.pitchDeg;
+        state.snappedCompareHeadingDeg = facing.headingDeg;
+        state.snappedFacingName = facing.name;
+    }
+    state.quantizedMoveHeadingDeg = state.snappedCompareHeadingDeg;
     state.peerTruthApplied = false;
 
     if (input.stationary || input.zupt)
@@ -168,6 +204,7 @@ void deadReckoningUpdate(DeadReckoningState &state, const DeadReckoningInput &in
         return;
     }
 
+    // Translate acceleration magnitude into a bounded scalar speed.
     if (state.accelMss < DEAD_RECKON_ACC_THRESH_MS2)
     {
         state.speedMps *= DEAD_RECKON_SPEED_DAMP;
@@ -265,11 +302,11 @@ void deadReckoningApplyPeerTruth(DeadReckoningState &state,
                                  bool peerStationary,
                                  bool peerLockedAfterMove,
                                  bool localStationary,
-                                 bool localLockedAfterMove,
                                  const DeadReckoningPeerView &localView)
 {
     state.peerTruthApplied = false;
 
+    // Ignore peers that cannot make a directional claim.
     if (peerDirectionCode == LINK_PEER_UNKNOWN || peerDirectionCode == LINK_PEER_CLOSE)
         return;
 
@@ -280,9 +317,11 @@ void deadReckoningApplyPeerTruth(DeadReckoningState &state,
         localStationary;
     const bool peerWinsByLockSignal =
         peerLockedAfterMove &&
-        !localLockedAfterMove &&
         (peerConfidence >= localView.directionConfidence);
 
+    // Prefer the peer when it has a stronger directional observation, when it
+    // is moving while we are stationary, or when it has a trusted post-motion
+    // lock from the most recently moved device.
     if (!(peerWinsByConfidence || peerWinsByMotionTiebreak || peerWinsByLockSignal))
         return;
     if (localView.distance <= 0.001f)
@@ -311,6 +350,7 @@ void deadReckoningApplyPeerTruth(DeadReckoningState &state,
     state.velY = 0.0f;
     state.velZ = 0.0f;
     state.speedMps *= 0.5f;
+    state.lockedAfterMove = false;
     state.peerTruthApplied = true;
 }
 

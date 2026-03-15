@@ -1,6 +1,13 @@
 #pragma once
 #include <Arduino.h>
 
+// Simple affine clock model used by the responder to map its local micros()
+// into the master's time base:
+//
+//     master_time ~= rate * local_time + offset
+//
+// The estimate is learned incrementally from the timestamps embedded in the
+// master's radio packets.
 struct TimeSyncState
 {
     bool     isMaster = false;
@@ -18,6 +25,8 @@ struct TimeSyncState
 
 void timeSyncBegin(TimeSyncState &ts, bool isMaster);
 void timeSyncObserveMaster(TimeSyncState &ts, uint32_t localRxUs, uint32_t masterUs);
+
+// Return current time expressed in the shared master clock domain.
 uint32_t timeSyncNowUs(const TimeSyncState &ts, uint32_t localUs);
 bool timeSyncLocked(const TimeSyncState &ts);
 float timeSyncRatePpm(const TimeSyncState &ts);

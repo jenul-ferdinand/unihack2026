@@ -2,6 +2,8 @@
 #include <math.h>
 #include <Arduino.h>
 
+// Math-only helpers kept separate so the estimation code stays readable.
+
 static constexpr float G_MSS = 9.80665f;
 
 void imuMathRotateVectorByQuat(const float q[4], const float v[3], float out[3])

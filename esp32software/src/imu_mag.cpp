@@ -1,5 +1,7 @@
 #include "imu_mag.h"
 
+// Minimal min/max calibration for the ICM-20948 magnetometer.
+
 void imuMagInit(ImuMagCal &cal)
 {
     cal.offset[0] = cal.offset[1] = cal.offset[2] = 0.0f;
@@ -45,6 +47,9 @@ void imuMagFinish(ImuMagCal &cal)
 void imuMagApply(const ImuMagCal &cal, float rawMx, float rawMy, float rawMz,
                  float &mx, float &my, float &mz)
 {
+    // Calibration is currently disabled in runtime use. Leaving the formulas in
+    // place makes it obvious how to re-enable once the project trusts the
+    // collected min/max sweep.
     return;
     mx = (rawMx - cal.offset[0]) * cal.scale[0];
     my = (rawMy - cal.offset[1]) * cal.scale[1];
