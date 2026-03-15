@@ -29,7 +29,11 @@ export class InfoPanelComponent {
     this.demoRequested.emit();
   }
 
-  formatDate(iso: string): string {
-    return new Date(iso).toLocaleString();
+  formatDatePart(iso: string): string {
+    return new Date(iso).toLocaleDateString();
+  }
+
+  formatTimePart(iso: string): string {
+    return new Date(iso).toLocaleTimeString();
   }
 }

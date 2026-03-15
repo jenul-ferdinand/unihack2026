@@ -66,8 +66,12 @@ export class InfoDetailPanelComponent {
     return { durationSec, deviceDistance, peerDistance, maxDepth, avgSeparation, maxSeparation, avgSpeed };
   }
 
-  formatDate(iso: string): string {
-    return new Date(iso).toLocaleString();
+  formatDatePart(iso: string): string {
+    return new Date(iso).toLocaleDateString();
+  }
+
+  formatTimePart(iso: string): string {
+    return new Date(iso).toLocaleTimeString();
   }
 
   formatDuration(seconds: number): string {

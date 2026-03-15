@@ -8,17 +8,17 @@
       <div class="detail-row">
         <dt>Status</dt>
         <dd>
-          <span class="status" [class.active]="run.status === 'active'">{{ run.status }}</span>
+          <span class="status-chip" [class.active]="run.status === 'active'">{{ run.status }}</span>
         </dd>
       </div>
       <div class="detail-row">
         <dt>Created</dt>
-        <dd>{{ formatDate(run.created_at) }}</dd>
+        <dd>{{ formatDatePart(run.created_at) }}<br>{{ formatTimePart(run.created_at) }}</dd>
       </div>
       @if (run.stopped_at) {
         <div class="detail-row">
           <dt>Stopped</dt>
-          <dd>{{ formatDate(run.stopped_at) }}</dd>
+          <dd>{{ formatDatePart(run.stopped_at) }}<br>{{ formatTimePart(run.stopped_at) }}</dd>
         </div>
       }
       <div class="detail-row">
