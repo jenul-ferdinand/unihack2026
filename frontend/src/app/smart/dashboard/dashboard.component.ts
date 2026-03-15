@@ -5,7 +5,7 @@ import { InfoDetailPanelComponent } from '../../dumb/info-detail-panel/info-deta
 import { MapPanelComponent } from './map-panel/map-panel.component';
 import { PairingComponent } from '../pairing/pairing.component';
 import { HelpPageComponent } from '../../dumb/help-page/help-page.component';
-import { RunsService, RunSummary } from '../../services/runs.service';
+import { RunsService, RunSummary, RunDetailResponse } from '../../services/runs.service';
 
 @Component({
   selector: 'app-dashboard',
@@ -21,6 +21,7 @@ export class DashboardComponent implements OnInit {
   runs: RunSummary[] = [];
   selectedRunId: string | null = null;
   selectedRun: RunSummary | null = null;
+  selectedRunDetail: RunDetailResponse | null = null;
   loading = false;
   demoLoading = false;
 
@@ -50,6 +51,7 @@ export class DashboardComponent implements OnInit {
     this.runsService.getRunDetail(runId).subscribe({
       next: (detail) => {
         if (this.selectedRunId !== runId) return;
+        this.selectedRunDetail = detail;
         for (const point of detail.path) {
           this.mapPanel.addPoints(point.device_pos, point.peer_pos);
         }
@@ -66,6 +68,7 @@ export class DashboardComponent implements OnInit {
   onDeleteRun(runId: string): void {
     this.selectedRunId = null;
     this.selectedRun = null;
+    this.selectedRunDetail = null;
     this.activeTab = 'runs';
     this.mapPanel?.clearPaths();
 

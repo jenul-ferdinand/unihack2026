@@ -26,6 +26,7 @@
     } @else if (activeTab === 'info') {
       <app-info-detail-panel
         [run]="selectedRun"
+        [detail]="selectedRunDetail"
         (deleteRequested)="onDeleteRun($event)"
       />
     }

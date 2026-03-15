@@ -27,6 +27,42 @@
       </div>
     </dl>
 
+    @if (stats; as s) {
+      <div class="stats-section">
+        <h2>Statistics</h2>
+        <dl class="details">
+          <div class="detail-row">
+            <dt>Duration</dt>
+            <dd>{{ formatDuration(s.durationSec) }}</dd>
+          </div>
+          <div class="detail-row">
+            <dt>Device Distance</dt>
+            <dd>{{ formatDistance(s.deviceDistance) }}</dd>
+          </div>
+          <div class="detail-row">
+            <dt>Peer Distance</dt>
+            <dd>{{ formatDistance(s.peerDistance) }}</dd>
+          </div>
+          <div class="detail-row">
+            <dt>Max Depth</dt>
+            <dd>{{ formatDistance(s.maxDepth) }}</dd>
+          </div>
+          <div class="detail-row">
+            <dt>Avg Separation</dt>
+            <dd>{{ formatDistance(s.avgSeparation) }}</dd>
+          </div>
+          <div class="detail-row">
+            <dt>Max Separation</dt>
+            <dd>{{ formatDistance(s.maxSeparation) }}</dd>
+          </div>
+          <div class="detail-row">
+            <dt>Avg Speed</dt>
+            <dd>{{ formatSpeed(s.avgSpeed) }}</dd>
+          </div>
+        </dl>
+      </div>
+    }
+
     <div class="actions">
       @if (confirmingDelete) {
         <p class="confirm-text">Delete this run?</p>
