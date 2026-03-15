@@ -76,6 +76,24 @@ dd {
 
 .actions {
   margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.download-btn {
+  width: 100%;
+  padding: 0.5rem;
+  font-size: 0.8rem;
+  border-radius: 4px;
+  cursor: pointer;
+  background: $bg-elevated;
+  color: $accent-device;
+  border: 1px solid $accent-device;
+
+  &:hover {
+    background: rgba($accent-device, 0.1);
+  }
 }
 
 .confirm-text {

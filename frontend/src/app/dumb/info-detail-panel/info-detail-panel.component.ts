@@ -99,6 +99,24 @@ export class InfoDetailPanelComponent {
     this.confirmingDelete = false;
   }
 
+  onDownloadCsv(): void {
+    if (!this.detail || !this.run) return;
+
+    const header = 'timestamp,device_x,device_y,device_z,peer_x,peer_y,peer_z';
+    const rows = this.detail.path.map((p) =>
+      `${p.timestamp},${p.device_pos.x},${p.device_pos.y},${p.device_pos.z},${p.peer_pos.x},${p.peer_pos.y},${p.peer_pos.z}`
+    );
+    const csv = [header, ...rows].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `run-${this.run.run_id}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   private dist(a: Vector3, b: Vector3): number {
     const dx = b.x - a.x;
     const dy = b.y - a.y;

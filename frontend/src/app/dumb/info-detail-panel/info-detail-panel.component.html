@@ -64,6 +64,9 @@
     }
 
     <div class="actions">
+      @if (detail && detail.path.length > 0) {
+        <button class="download-btn" (click)="onDownloadCsv()">Download CSV</button>
+      }
       @if (confirmingDelete) {
         <p class="confirm-text">Delete this run?</p>
         <div class="confirm-actions">
