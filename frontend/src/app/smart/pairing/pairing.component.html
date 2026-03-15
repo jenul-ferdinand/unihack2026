@@ -1,0 +1,50 @@
+<section class="pairing">
+  <h2 class="title">Pairing</h2>
+
+  <div class="devices">
+    <div class="device">
+      <div class="circle" [class.connected]="device1Connected"></div>
+      <span class="label">{{ paired ? 'Device' : 'Device 1' }}</span>
+      <span class="device-status" [class.connected]="device1Connected">
+        {{ device1Connected ? 'Connected' : 'Disconnected' }}
+      </span>
+      @if (device1Ip) {
+        <span class="ip">{{ device1Ip }}</span>
+      }
+    </div>
+
+    <div class="device">
+      <div class="circle" [class.connected]="device2Connected"></div>
+      <span class="label">{{ paired ? 'Peer' : 'Device 2' }}</span>
+      <span class="device-status" [class.connected]="device2Connected">
+        {{ device2Connected ? 'Connected' : 'Disconnected' }}
+      </span>
+      @if (device2Ip) {
+        <span class="ip">{{ device2Ip }}</span>
+      }
+    </div>
+  </div>
+
+  <div class="info-card">
+    @if (paired) {
+      <p class="info-heading paired-text">Devices paired and ready</p>
+      <p class="info-body">Strap each device to your leg and press the <strong>Point to Start of Cave</strong> button to begin your session.</p>
+    } @else if (device1Connected) {
+      <p class="info-heading">Waiting for second device...</p>
+      <p class="info-body">One device has connected. Hold down both buttons on the second device to pair it.</p>
+    } @else {
+      <p class="info-heading">No devices connected</p>
+      <p class="info-body">Turn on both devices, connect them to the same Wi-Fi network, then hold both buttons on each device to start pairing.</p>
+    }
+  </div>
+
+  <div class="steps">
+    <h3 class="steps-title">How to pair</h3>
+    <ol class="step-list">
+      <li class="step" [class.done]="device1Connected || paired">Turn on both devices</li>
+      <li class="step" [class.done]="device1Connected || paired">Connect to the same Wi-Fi network</li>
+      <li class="step" [class.done]="device1Connected || paired">Hold both buttons on each device</li>
+      <li class="step" [class.done]="paired">Wait for both devices to connect</li>
+    </ol>
+  </div>
+</section>

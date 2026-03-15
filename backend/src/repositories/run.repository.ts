@@ -35,6 +35,11 @@ export class RunRepository {
     );
   }
 
+  async deleteById(id: string): Promise<boolean> {
+    const result = await Run.deleteOne({ _id: id });
+    return result.deletedCount > 0;
+  }
+
   async closeOrphanedRuns(): Promise<void> {
     await Run.updateMany(
       { status: 'active' },

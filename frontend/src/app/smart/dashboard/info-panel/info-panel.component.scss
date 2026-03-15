@@ -11,6 +11,7 @@
   background: $bg-surface;
   border-right: 1px solid $border;
   overflow-y: auto;
+  @include thin-scrollbar;
 }
 
 .header {
@@ -55,11 +56,11 @@ h2 {
 }
 
 .demo-btn {
-  border-color: $orange;
-  color: $orange;
+  border-color: #a78bfa;
+  color: #a78bfa;
 
   &:hover:not(:disabled) {
-    background: rgba($orange, 0.1);
+    background: rgba(#a78bfa, 0.1);
   }
 }
 
@@ -98,14 +99,21 @@ h2 {
   }
 }
 
-.status {
-  font-size: 0.7rem;
+.status-chip {
+  font-size: 0.6rem;
   text-transform: uppercase;
   font-weight: 600;
-  color: $text-muted;
+  letter-spacing: 0.03em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 9999px;
+  color: #4ade80;
+  background: rgba(#4ade80, 0.1);
+  border: 1px solid rgba(#4ade80, 0.25);
 
   &.active {
     color: $orange;
+    background: rgba($orange, 0.1);
+    border-color: rgba($orange, 0.25);
   }
 }
 

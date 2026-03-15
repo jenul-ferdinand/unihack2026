@@ -1,12 +1,35 @@
-<app-navbar />
-<main class="content">
-  <app-info-panel
-    [runs]="runs"
-    [selectedRunId]="selectedRunId"
-    [demoLoading]="demoLoading"
-    (runSelected)="onRunSelected($event)"
-    (refreshRequested)="loadRuns()"
-    (demoRequested)="onDemoRequested()"
-  />
-  <app-map-panel />
-</main>
+<app-navbar
+  [activeTab]="activeTab"
+  [hasSelectedRun]="selectedRunId !== null"
+  (tabChanged)="onTabChanged($event)"
+/>
+
+@if (activeTab === 'pairing') {
+  <main class="content">
+    <app-pairing />
+  </main>
+} @else if (activeTab === 'help') {
+  <main class="content">
+    <app-help-page />
+  </main>
+} @else {
+  <main class="content">
+    @if (activeTab === 'runs') {
+      <app-info-panel
+        [runs]="runs"
+        [selectedRunId]="selectedRunId"
+        [demoLoading]="demoLoading"
+        (runSelected)="onRunSelected($event)"
+        (refreshRequested)="loadRuns()"
+        (demoRequested)="onDemoRequested()"
+      />
+    } @else if (activeTab === 'info') {
+      <app-info-detail-panel
+        [run]="selectedRun"
+        [detail]="selectedRunDetail"
+        (deleteRequested)="onDeleteRun($event)"
+      />
+    }
+    <app-map-panel />
+  </main>
+}

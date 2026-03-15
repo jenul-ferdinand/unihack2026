@@ -3,7 +3,7 @@
     <h2>Runs</h2>
     <div class="header-actions">
       <button class="demo-btn" (click)="demo()" [disabled]="demoLoading">
-        @if (demoLoading) { Running... } @else { Demo Run }
+        @if (demoLoading) { Running... } @else { Start Demo Run }
       </button>
       <button class="refresh-btn" (click)="refresh()">Refresh</button>
     </div>
@@ -20,10 +20,10 @@
         [class.selected]="run.run_id === selectedRunId"
         (click)="selectRun(run.run_id)"
       >
-        <span class="status" [class.active]="run.status === 'active'">
+        <span class="status-chip" [class.active]="run.status === 'active'">
           {{ run.status }}
         </span>
-        <span class="date">{{ formatDate(run.created_at) }}</span>
+        <span class="date">{{ formatDatePart(run.created_at) }}<br>{{ formatTimePart(run.created_at) }}</span>
         <span class="points">{{ run.point_count }} pts</span>
       </li>
     }

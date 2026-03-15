@@ -1,4 +1,4 @@
-import type { CommsRequest, Vector3 } from '@unihack/types';
+import type { Packet, Vector3 } from '@unihack/types';
 
 /**
  * Build a minimal CommsRequest with the fields that matter for processing.
@@ -9,7 +9,7 @@ export function makePacket(opts: {
   peerPos: Vector3;
   peerSpeed: number;
   timestampUs?: number;
-}): CommsRequest {
+}): Packet {
   return {
     shared_frame: {
       initial_yaw_locked: 1,
@@ -52,13 +52,13 @@ export function makeRunPackets(opts?: {
   movingCount?: number;
   startPos?: Vector3;
   endPos?: Vector3;
-}): CommsRequest[] {
+}): Packet[] {
   const still = opts?.stationaryCount ?? 10;
   const moving = opts?.movingCount ?? 20;
   const start = opts?.startPos ?? { x: 0, y: 0, z: 0 };
   const end = opts?.endPos ?? { x: 10, y: 0, z: 0 };
 
-  const packets: CommsRequest[] = [];
+  const packets: Packet[] = [];
   let t = 0;
 
   // Stationary at start

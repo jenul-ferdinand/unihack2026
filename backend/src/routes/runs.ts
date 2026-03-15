@@ -93,4 +93,43 @@ runs.openapi(
   },
 );
 
+runs.openapi(
+  createRoute({
+    method: 'delete',
+    path: '/{id}',
+    tags: ['Runs'],
+    request: {
+      params: z.object({
+        id: z.string(),
+      }),
+    },
+    responses: {
+      200: {
+        content: {
+          'application/json': {
+            schema: z.object({ success: z.boolean() }),
+          },
+        },
+        description: 'Run deleted',
+      },
+      404: {
+        content: {
+          'application/json': {
+            schema: z.object({ error: z.string() }),
+          },
+        },
+        description: 'Run not found',
+      },
+    },
+  }),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const deleted = await runService.deleteRun(id);
+    if (!deleted) {
+      return c.json({ error: 'Run not found' }, 404);
+    }
+    return c.json({ success: true }, 200);
+  },
+);
+
 export default runs;

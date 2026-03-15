@@ -49,9 +49,14 @@ describe('Comms E2E', () => {
       runId = body.run_id;
     });
 
-    it('POST /api/comms — accepts data points', async () => {
-      for (const pkt of packets) {
-        const res = await app.request('/api/comms', json(pkt));
+    it('POST /api/comms — accepts batched data points', async () => {
+      const BATCH_SIZE = 24;
+      for (let i = 0; i < packets.length; i += BATCH_SIZE) {
+        const batch = packets.slice(i, i + BATCH_SIZE);
+        const res = await app.request('/api/comms', json({
+          sample_count: batch.length,
+          samples: batch,
+        }));
         expect(res.status).toBe(200);
         const body = await res.json() as any;
         expect(body.success).toBe(true);
@@ -114,8 +119,10 @@ describe('Comms E2E', () => {
     });
 
     it('POST /api/comms — returns success:false when no active run', async () => {
-      const pkt = packets[0];
-      const res = await app.request('/api/comms', json(pkt));
+      const res = await app.request('/api/comms', json({
+        sample_count: 1,
+        samples: [packets[0]],
+      }));
 
       expect(res.status).toBe(200);
       const body = await res.json() as any;

@@ -1,0 +1,81 @@
+<section class="info-detail-panel">
+  <div class="header">
+    <h2>Run Info</h2>
+  </div>
+
+  @if (run) {
+    <dl class="details">
+      <div class="detail-row">
+        <dt>Status</dt>
+        <dd>
+          <span class="status-chip" [class.active]="run.status === 'active'">{{ run.status }}</span>
+        </dd>
+      </div>
+      <div class="detail-row">
+        <dt>Created</dt>
+        <dd>{{ formatDatePart(run.created_at) }}<br>{{ formatTimePart(run.created_at) }}</dd>
+      </div>
+      @if (run.stopped_at) {
+        <div class="detail-row">
+          <dt>Stopped</dt>
+          <dd>{{ formatDatePart(run.stopped_at) }}<br>{{ formatTimePart(run.stopped_at) }}</dd>
+        </div>
+      }
+      <div class="detail-row">
+        <dt>Points</dt>
+        <dd>{{ run.point_count }}</dd>
+      </div>
+    </dl>
+
+    @if (stats; as s) {
+      <div class="stats-section">
+        <h2>Statistics</h2>
+        <dl class="details">
+          <div class="detail-row">
+            <dt>Duration</dt>
+            <dd>{{ formatDuration(s.durationSec) }}</dd>
+          </div>
+          <div class="detail-row">
+            <dt>Device Distance</dt>
+            <dd>{{ formatDistance(s.deviceDistance) }}</dd>
+          </div>
+          <div class="detail-row">
+            <dt>Peer Distance</dt>
+            <dd>{{ formatDistance(s.peerDistance) }}</dd>
+          </div>
+          <div class="detail-row">
+            <dt>Max Depth</dt>
+            <dd>{{ formatDistance(s.maxDepth) }}</dd>
+          </div>
+          <div class="detail-row">
+            <dt>Avg Separation</dt>
+            <dd>{{ formatDistance(s.avgSeparation) }}</dd>
+          </div>
+          <div class="detail-row">
+            <dt>Max Separation</dt>
+            <dd>{{ formatDistance(s.maxSeparation) }}</dd>
+          </div>
+          <div class="detail-row">
+            <dt>Avg Speed</dt>
+            <dd>{{ formatSpeed(s.avgSpeed) }}</dd>
+          </div>
+        </dl>
+      </div>
+    }
+
+    <div class="actions">
+      @if (detail && detail.path.length > 0) {
+        <button class="download-btn" (click)="onDownloadCsv()">Download CSV</button>
+      }
+      @if (confirmingDelete) {
+        <p class="confirm-text">Delete this run?</p>
+        <div class="confirm-actions">
+          <button class="delete-btn confirm" (click)="onDelete()">Confirm</button>
+          <button class="cancel-btn" (click)="cancelDelete()">Cancel</button>
+        </div>
+      } @else {
+        <button class="delete-btn" (click)="onDelete()">Delete Run</button>
+      }
+    </div>
+  }
+</section>

@@ -2,6 +2,7 @@ import { swaggerUI } from '@hono/swagger-ui';
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { cors } from 'hono/cors';
 import comms from './routes/comms';
+import pair from './routes/pair';
 import runs from './routes/runs';
 
 const app = new OpenAPIHono();
@@ -9,6 +10,7 @@ const app = new OpenAPIHono();
 app.use('*', cors());
 
 app.route('/api/comms', comms);
+app.route('/api/pair', pair);
 app.route('/api/runs', runs);
 
 app.openapi(

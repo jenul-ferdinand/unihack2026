@@ -1,0 +1,151 @@
+@use 'variables' as *;
+
+$green: #34d399;
+
+:host {
+  display: flex;
+  flex: 1;
+}
+
+.pairing {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2.5rem;
+  background: $bg-base;
+  padding: 2rem;
+}
+
+.title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: $text-muted;
+}
+
+.devices {
+  display: flex;
+  gap: 6rem;
+}
+
+.device {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.circle {
+  width: 10rem;
+  height: 10rem;
+  border-radius: 50%;
+  background: $bg-elevated;
+  border: 3px solid $border;
+  transition: background 0.3s, border-color 0.3s, box-shadow 0.3s;
+
+  &.connected {
+    background: rgba($green, 0.15);
+    border-color: $green;
+    box-shadow: 0 0 30px rgba($green, 0.3);
+  }
+}
+
+.label {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: $text-primary;
+}
+
+.device-status {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 9999px;
+  color: $text-muted;
+  background: rgba($border, 0.3);
+  border: 1px solid $border;
+
+  &.connected {
+    color: $green;
+    background: rgba($green, 0.1);
+    border-color: rgba($green, 0.25);
+  }
+}
+
+.ip {
+  font-size: 0.75rem;
+  color: $text-muted;
+  font-family: monospace;
+}
+
+.info-card {
+  text-align: center;
+  max-width: 28rem;
+  padding: 1rem 1.5rem;
+  background: $bg-surface;
+  border: 1px solid $border;
+  border-radius: 8px;
+}
+
+.info-heading {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: $text-primary;
+
+  &.paired-text { color: $green; }
+}
+
+.info-body {
+  margin: 0;
+  font-size: 0.8rem;
+  color: $text-muted;
+  line-height: 1.5;
+
+  strong { color: $text-primary; }
+}
+
+.steps {
+  max-width: 22rem;
+  width: 100%;
+}
+
+.steps-title {
+  margin: 0 0 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: $text-muted;
+  text-align: center;
+}
+
+.step-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.step {
+  font-size: 0.8rem;
+  color: $text-muted;
+  padding: 0.5rem 0.75rem;
+  background: $bg-elevated;
+  border: 1px solid $border;
+  border-radius: 6px;
+
+  &.done {
+    color: $green;
+    border-color: rgba($green, 0.25);
+    background: rgba($green, 0.05);
+  }
+}

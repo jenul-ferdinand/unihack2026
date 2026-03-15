@@ -35,3 +35,33 @@ h2 {
     height: 100%;
   }
 }
+
+.legend {
+  position: absolute;
+  bottom: 0.75rem;
+  right: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem 0.65rem;
+  background: rgba($bg-surface, 0.85);
+  border: 1px solid $border;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  color: $text-muted;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.legend-swatch {
+  width: 14px;
+  height: 3px;
+  border-radius: 1px;
+
+  &.device { background: $accent-device; }
+  &.peer { background: $accent-peer; }
+}

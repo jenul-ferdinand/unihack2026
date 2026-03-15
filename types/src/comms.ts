@@ -1,7 +1,7 @@
 import { Vector3Schema } from './vector';
 import { z } from 'zod';
 
-export const CommsRequestSchema = z.object({
+export const PacketSchema = z.object({
   shared_frame: z.object({
     initial_yaw_locked: z.literal(0).or(z.literal(1)),
     initial_yaw_deg: z.number(),
@@ -29,6 +29,11 @@ export const CommsRequestSchema = z.object({
     bearing_world_deg: z.number(),
     bearing_local_deg: z.number(),
   }),
+});
+
+export const CommsRequestSchema = z.object({
+  sample_count: z.number(),
+  samples: z.array(PacketSchema),
 });
 
 export const CommsResponseSchema = z.object({
@@ -73,6 +78,7 @@ export const RunDetailResponseSchema = z.object({
   path: z.array(PathPointSchema),
 });
 
+export type Packet = z.infer<typeof PacketSchema>;
 export type CommsRequest = z.infer<typeof CommsRequestSchema>;
 export type CommsResponse = z.infer<typeof CommsResponseSchema>;
 export type CommsStartResponse = z.infer<typeof CommsStartResponseSchema>;

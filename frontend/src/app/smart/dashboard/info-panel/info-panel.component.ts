@@ -1,6 +1,6 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RunSummary } from '../../../services/comms.service';
+import { RunSummary } from '../../../services/runs.service';
 
 @Component({
   selector: 'app-info-panel',
@@ -29,7 +29,11 @@ export class InfoPanelComponent {
     this.demoRequested.emit();
   }
 
-  formatDate(iso: string): string {
-    return new Date(iso).toLocaleString();
+  formatDatePart(iso: string): string {
+    return new Date(iso).toLocaleDateString();
+  }
+
+  formatTimePart(iso: string): string {
+    return new Date(iso).toLocaleTimeString();
   }
 }
