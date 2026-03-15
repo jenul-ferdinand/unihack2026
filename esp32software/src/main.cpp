@@ -33,6 +33,16 @@
 
 #define CE_PIN 4
 #define CSN_PIN 5
+static constexpr uint8_t LEFT_LED_PIN = 33;
+static constexpr uint8_t RIGHT_LED_PIN = 25;
+static constexpr uint8_t BACK_LED_PIN = 26;
+static constexpr uint8_t FRONT_LED_PIN = 27;
+static constexpr uint8_t DIRECTION_LED_PINS[] = {
+    LEFT_LED_PIN,
+    RIGHT_LED_PIN,
+    BACK_LED_PIN,
+    FRONT_LED_PIN,
+};
 
 // CHANGE THESE PER DEVICE
 #define SELF_ID 2
@@ -152,7 +162,10 @@ static constexpr unsigned long PEER_PACKET_STALE_MS = 500;
 // ---------- Telemetry persistence / upload ----------
 static constexpr const char *WIFI_SSID = "Christopher's A35";
 static constexpr const char *WIFI_PASSWORD = "its a secret";
-static constexpr const char *WEBHOOK_URL = "http://10.43.196.51:8080/api";
+static constexpr const char *COMMS_BASE_URL = "http://136.112.170.87:3000";
+static constexpr const char *COMMS_START_URL = "http://136.112.170.87:3000/api/comms/start";
+static constexpr const char *COMMS_PACKET_URL = "http://136.112.170.87:3000/api/comms";
+static constexpr const char *COMMS_STOP_URL = "http://136.112.170.87:3000/api/comms/stop";
 static constexpr const char *TELEMETRY_LOG_PATH = "/telemetry.bin";
 static constexpr const char *TELEMETRY_TMP_PATH = "/telemetry.tmp";
 static constexpr unsigned long TELEMETRY_LOG_INTERVAL_MS = 100;
@@ -160,8 +173,6 @@ static constexpr unsigned long WIFI_CHECK_INTERVAL_MS = 10000;
 static constexpr unsigned long WIFI_CONNECT_TIMEOUT_MS = 5000;
 static constexpr size_t TELEMETRY_MAX_FILE_BYTES = 7 * 1024 * 1024;
 static constexpr size_t TELEMETRY_TRIM_TARGET_BYTES = 5 * 1024 * 1024;
-static constexpr unsigned long TELEMETRY_SEND_READY_DELAY_MS = 2000;
-static constexpr size_t TELEMETRY_POST_BATCH_RECORDS = 24;
 
 struct __attribute__((packed)) TelemetryVec3
 {
@@ -206,8 +217,6 @@ struct __attribute__((packed)) TelemetryLogRecord
 static_assert(sizeof(TelemetryLogRecord) == 127, "TelemetryLogRecord layout changed unexpectedly");
 
 static bool gTelemetryPausedForSend = false;
-static bool gTelemetryReadyPrinted = false;
-static unsigned long gTelemetryReadyAtMs = 0;
 
 // ---------- Utility ----------
 static float wrapAngleDeg(float deg)
@@ -217,6 +226,37 @@ static float wrapAngleDeg(float deg)
     while (deg < -180.0f)
         deg += 360.0f;
     return deg;
+}
+
+static void setDirectionLeds(uint8_t directionCode)
+{
+    const bool showDirection = gHavePeerPacket && !gPeerPacketStale;
+
+    digitalWrite(LEFT_LED_PIN, LOW);
+    digitalWrite(RIGHT_LED_PIN, LOW);
+    digitalWrite(BACK_LED_PIN, LOW);
+    digitalWrite(FRONT_LED_PIN, LOW);
+
+    if (!showDirection)
+        return;
+
+    switch (directionCode)
+    {
+        case LINK_PEER_LEFT:
+            digitalWrite(LEFT_LED_PIN, HIGH);
+            break;
+        case LINK_PEER_RIGHT:
+            digitalWrite(RIGHT_LED_PIN, HIGH);
+            break;
+        case LINK_PEER_BACK:
+            digitalWrite(BACK_LED_PIN, HIGH);
+            break;
+        case LINK_PEER_FORWARD:
+            digitalWrite(FRONT_LED_PIN, HIGH);
+            break;
+        default:
+            break;
+    }
 }
 
 static float vecNorm3(float x, float y, float z)
@@ -231,7 +271,7 @@ static float degToRad(float deg)
 
 static bool wifiConfigured()
 {
-    return WIFI_SSID[0] != '\0' && WEBHOOK_URL[0] != '\0';
+    return WIFI_SSID[0] != '\0' && COMMS_BASE_URL[0] != '\0';
 }
 
 static void appendFloat(String &json, float value, int decimals)
@@ -520,64 +560,20 @@ static void printQueuedTelemetryStats()
     Serial.println(samples);
 }
 
-static bool postTelemetryBatch(size_t &sentRecordsOut)
+static bool postJson(const char *url, const String &payload, const char *label)
 {
-    // Upload only a small batch at a time so a transient HTTP failure does not
-    // force the whole backlog to be retried in one request.
-    sentRecordsOut = 0;
-
     if (!wifiConfigured() || !ensureWifiConnected())
         return false;
 
-    File file = SPIFFS.open(TELEMETRY_LOG_PATH, FILE_READ);
-    if (!file)
-        return false;
-
-    const size_t fileSize = file.size();
-    const size_t recordSize = sizeof(TelemetryLogRecord);
-    const size_t availableRecords = fileSize / recordSize;
-    if (availableRecords == 0)
-    {
-        file.close();
-        return true;
-    }
-
-    const size_t batchRecords = min(availableRecords, TELEMETRY_POST_BATCH_RECORDS);
-    String payload;
-    payload.reserve(128 + (batchRecords * 700));
-    payload += "{";
-    payload += "\"device_id\":";
-    payload += String(SELF_ID);
-    payload += ",\"sample_count\":";
-    payload += String(batchRecords);
-    payload += ",\"samples\":[";
-
-    TelemetryLogRecord record{};
-    size_t sentRecords = 0;
-    while (sentRecords < batchRecords &&
-           file.read(reinterpret_cast<uint8_t *>(&record), sizeof(record)) == sizeof(record))
-    {
-        if (sentRecords > 0)
-            payload += ",";
-        payload += telemetryRecordToJson(record);
-        sentRecords++;
-    }
-
-    file.close();
-    payload += "]}";
-
-    if (sentRecords == 0)
-        return true;
-
     HTTPClient http;
-    Serial.print("Posting telemetry to ");
-    Serial.println(WEBHOOK_URL);
-    Serial.print("Telemetry batch samples=");
-    Serial.println(sentRecords);
-    Serial.print("Telemetry payload bytes=");
+    Serial.print(label);
+    Serial.print(" POST to ");
+    Serial.println(url);
+    Serial.print(label);
+    Serial.print(" payload bytes=");
     Serial.println(payload.length());
 
-    http.begin(WEBHOOK_URL);
+    http.begin(url);
     http.addHeader("Content-Type", "application/json");
     http.addHeader("Accept", "application/json");
     http.useHTTP10(true);
@@ -589,15 +585,83 @@ static bool postTelemetryBatch(size_t &sentRecordsOut)
     const String responseBody = http.getString();
     http.end();
 
-    Serial.print("Telemetry POST response code=");
+    Serial.print(label);
+    Serial.print(" response code=");
     Serial.println(responseCode);
-    Serial.print("Telemetry POST response body=");
+    Serial.print(label);
+    Serial.print(" response body=");
     Serial.println(responseBody);
 
-    if (responseCode < 200 || responseCode >= 300)
+    return responseCode >= 200 && responseCode < 300;
+}
+
+static bool postTelemetryStart()
+{
+    return postJson(COMMS_START_URL, "{\"start\":1}", "Telemetry start");
+}
+
+static bool postTelemetryStop()
+{
+    return postJson(COMMS_STOP_URL, "{\"stop\":1}", "Telemetry stop");
+}
+
+static bool postTelemetryRecord(const TelemetryLogRecord &record)
+{
+    String payload;
+    payload.reserve(800);
+    payload += "{";
+    payload += "\"device_id\":";
+    payload += String(SELF_ID);
+    payload += ",\"sample\":";
+    payload += telemetryRecordToJson(record);
+    payload += "}";
+    return postJson(COMMS_PACKET_URL, payload, "Telemetry packet");
+}
+
+static bool flushQueuedTelemetry(size_t &sentRecordsOut)
+{
+    sentRecordsOut = 0;
+
+    if (!wifiConfigured() || !ensureWifiConnected())
         return false;
 
-    discardTelemetryPrefix(sentRecords * sizeof(TelemetryLogRecord));
+    File file = SPIFFS.open(TELEMETRY_LOG_PATH, FILE_READ);
+    if (!file)
+        return false;
+
+    const size_t availableRecords = file.size() / sizeof(TelemetryLogRecord);
+    if (availableRecords == 0)
+    {
+        file.close();
+        return true;
+    }
+
+    if (!postTelemetryStart())
+    {
+        file.close();
+        return false;
+    }
+
+    TelemetryLogRecord record{};
+    size_t sentRecords = 0;
+    while (file.read(reinterpret_cast<uint8_t *>(&record), sizeof(record)) == sizeof(record))
+    {
+        if (!postTelemetryRecord(record))
+            break;
+        sentRecords++;
+    }
+
+    file.close();
+
+    if (sentRecords > 0)
+        discardTelemetryPrefix(sentRecords * sizeof(TelemetryLogRecord));
+
+    if (sentRecords != availableRecords)
+        return false;
+
+    if (!postTelemetryStop())
+        return false;
+
     sentRecordsOut = sentRecords;
     return true;
 }
@@ -620,50 +684,7 @@ static void maybeLogTelemetry()
 
 static void maybeUploadTelemetry()
 {
-    // A two-stage uploader:
-    // - every 10s, check whether a queued log exists and WiFi is reachable;
-    // - once ready, pause new logging and POST batches every 2s until done.
     const unsigned long nowMs = millis();
-
-    if (gTelemetryPausedForSend)
-    {
-        if (!gTelemetryReadyPrinted)
-        {
-            Serial.println("WiFi connected. Telemetry paused. Ready to send queued JSON in 2 seconds.");
-            gTelemetryReadyPrinted = true;
-            gTelemetryReadyAtMs = nowMs;
-        }
-
-        if (nowMs - gTelemetryReadyAtMs < TELEMETRY_SEND_READY_DELAY_MS)
-            return;
-
-        size_t sentRecords = 0;
-        const bool sent = postTelemetryBatch(sentRecords);
-        if (sent)
-        {
-            Serial.print("Queued telemetry batch sent. Samples sent=");
-            Serial.println(sentRecords);
-        }
-        else
-        {
-            Serial.println("Queued telemetry send failed.");
-        }
-
-        if (!hasQueuedTelemetry() || !sent)
-        {
-            gTelemetryPausedForSend = false;
-            gTelemetryReadyPrinted = false;
-            gTelemetryReadyAtMs = 0;
-            gLastWifiCheckMs = nowMs;
-        }
-        else
-        {
-            gTelemetryReadyPrinted = true;
-            gTelemetryReadyAtMs = nowMs;
-            Serial.println("More queued telemetry remains. Sending next batch in 2 seconds.");
-        }
-        return;
-    }
 
     if (nowMs - gLastWifiCheckMs < WIFI_CHECK_INTERVAL_MS)
         return;
@@ -685,8 +706,20 @@ static void maybeUploadTelemetry()
     }
 
     gTelemetryPausedForSend = true;
-    gTelemetryReadyPrinted = false;
-    gTelemetryReadyAtMs = nowMs;
+    size_t sentRecords = 0;
+    const bool sent = flushQueuedTelemetry(sentRecords);
+    gTelemetryPausedForSend = false;
+
+    if (sent)
+    {
+        Serial.print("Queued telemetry flush sent records=");
+        Serial.println(sentRecords);
+    }
+    else
+    {
+        Serial.print("Queued telemetry flush stopped after records=");
+        Serial.println(sentRecords);
+    }
 }
 
 static void rotate2D(float x, float y, float yawDeg, float &outX, float &outY)
@@ -1510,6 +1543,12 @@ void setup()
     Serial.begin(115200);
     delay(1000);
 
+    for (uint8_t pin : DIRECTION_LED_PINS)
+    {
+        pinMode(pin, OUTPUT);
+        digitalWrite(pin, LOW);
+    }
+
     SPIFFS.begin(true);
     WiFi.mode(WIFI_STA);
     WiFi.disconnect(true, true);
@@ -1619,6 +1658,8 @@ void loop()
         computeRelativeDirection();
     }
 
+    setDirectionLeds(gDeadPeerView.directionCode);
+
 #if IS_POLLER
     // Master always defines the shared frame
     if (gInitialYawLocked && !gSharedFrameLocked)
@@ -1634,8 +1675,8 @@ void loop()
         printDebug();
     }
 
-    //maybeLogTelemetry();
-    //maybeUploadTelemetry();
+    maybeLogTelemetry();
+    maybeUploadTelemetry();
 
 #if IS_POLLER
     delay(20);
